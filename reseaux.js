@@ -104,12 +104,6 @@
         <!-- ══ STATS FB AVANCÉES ══ -->
         <div id="rs-s-stats" class="rs-s" style="display:none;">
 
-          <!-- Bandeau info filtres -->
-          <div style="display:flex;align-items:center;gap:10px;background:rgba(0,46,255,0.06);border:1px solid rgba(0,46,255,0.15);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:var(--muted);">
-            <span style="font-size:16px;">ℹ️</span>
-            <span>Ces statistiques viennent de votre <strong style="color:var(--text);">saisie via bookmarklet</strong> (90 jours). Les filtres <em>1 sem. / 1 mois / 2 mois</em> en haut ne s'appliquent pas ici.</span>
-          </div>
-
           <!-- Évolution journalière sur 90 jours -->
           <div class="card" style="margin-bottom:14px;">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
@@ -445,6 +439,8 @@
     document.querySelectorAll('.rs-per-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     refreshCharts();
+    // Si l'onglet Stats avancées est actif ET qu'on a des données, re-rendre
+    if (window._stData) renderStatsAvancees();
   };
 
   // ── Filtrage par réseau et période ─────────────────────────
@@ -464,6 +460,25 @@
     if (p === '4w')  return new Date(now - 28*86400000);
     if (p === '8w')  return new Date(now - 56*86400000);
     return new Date(0); // 'all'
+  }
+
+  function periodDays() {
+    const p = _state.period;
+    if (p === '1w') return 7;
+    if (p === '4w') return 30;
+    if (p === '8w') return 60;
+    return 90; // 'all'
+  }
+
+  function filterDaily(rows) {
+    // Filtre les données journalières selon la période sélectionnée
+    if (!rows || !rows.length) return [];
+    const days = periodDays();
+    const cutoff = new Date(Date.now() - days * 86400000);
+    return rows.filter(r => {
+      const dt = new Date(r.date_point);
+      return !isNaN(dt) && dt >= cutoff;
+    });
   }
 
   // ── Chargement ─────────────────────────────────────────────
@@ -1220,8 +1235,9 @@
 
     // ── Graphiques journaliers depuis la feuille Quotidien ──
     const quotidien = d.quotidien || [];
-    const dailyVues  = quotidien.filter(r => r.type === 'vues').sort((a,b) => String(a.date_point).localeCompare(String(b.date_point)));
-    const dailyInter = quotidien.filter(r => r.type === 'interactions').sort((a,b) => String(a.date_point).localeCompare(String(b.date_point)));
+    const sortByDate = (a,b) => String(a.date_point).localeCompare(String(b.date_point));
+    const dailyVues  = filterDaily(quotidien.filter(r => r.type === 'vues').sort(sortByDate));
+    const dailyInter = filterDaily(quotidien.filter(r => r.type === 'interactions').sort(sortByDate));
 
     if (dailyVues.length > 0) {
       set('st-daily-note', dailyVues.length + ' points · ' + String(dailyVues[0].date_point).slice(0,10) + ' → ' + String(dailyVues[dailyVues.length-1].date_point).slice(0,10));
@@ -1279,24 +1295,30 @@
       return;
     }
 
-    const periodeLabel = v?.periode_debut && v?.periode_fin
-      ? `Période : ${v.periode_debut} – ${String(v.periode_fin).slice(0,10)}` : '';
-    set('st-periode-label', periodeLabel);
-    set('st-source-note', 'Source : Google Sheet · ' + periodeLabel);
+    // Calculer les agrégats depuis les données journalières filtrées
+    const vuesPeriode  = dailyVues.reduce((s,r)  => s + (r.valeur||0), 0);
+    const interPeriode = dailyInter.reduce((s,r) => s + (r.valeur||0), 0);
+    const days = periodDays();
+    const perLabel = { '1w':'7 derniers jours', '4w':'30 derniers jours', '8w':'60 derniers jours', 'all':'90 derniers jours' }[_state.period] || '90 jours';
 
-    // KPIs
+    const periodeLabel = perLabel + (v?.periode_debut && v?.periode_fin ? ` · données : ${v.periode_debut} – ${String(v.periode_fin).slice(0,10)}` : '');
+    set('st-periode-label', periodeLabel);
+    set('st-source-note', 'Source : Google Sheet · ' + perLabel);
+
+    // KPIs : fans = dernier connu (pas filtrable) / vues+interactions = somme filtrée
+    const hasDaily = dailyVues.length > 0 || dailyInter.length > 0;
     if (noDataEl) noDataEl.innerHTML = [
-      { label:'Fans Facebook',        val:a?.followers_total,    color:'#1877F2' },
-      { label:'Vues totales',         val:v?.vues_total,         color:'#002EFF' },
-      { label:'Interactions totales', val:i?.interactions_total, color:'#dc2743' },
-      { label:'Réactions',            val:i?.reactions,          color:'#002EFF' },
-      { label:'Commentaires',         val:i?.commentaires,       color:'#5500DD' },
-      { label:'Partages',             val:i?.partages,           color:'#B86800' },
-      // Fans nets et Désabonnements affichés dans la carte dédiée ci-dessous
+      { label:'Fans Facebook',        val:a?.followers_total,  color:'#1877F2', note:'total actuel' },
+      { label:'Vues ('+perLabel+')',   val:hasDaily && vuesPeriode > 0 ? vuesPeriode : v?.vues_total,  color:'#002EFF', note: hasDaily && vuesPeriode > 0 ? '' : '90 jours' },
+      { label:'Interactions ('+perLabel+')', val:hasDaily && interPeriode > 0 ? interPeriode : i?.interactions_total, color:'#dc2743', note: hasDaily && interPeriode > 0 ? '' : '90 jours' },
+      { label:'Réactions',            val:i?.reactions,        color:'#002EFF' },
+      { label:'Commentaires',         val:i?.commentaires,     color:'#5500DD' },
+      { label:'Partages',             val:i?.partages,         color:'#B86800' },
     ].filter(k=>k.val!==null&&k.val!==undefined).map(k=>`
       <div class="card" style="padding:12px 14px;border-left:3px solid ${k.color};">
         <div class="rs-kl">${k.label}</div>
         <div class="rs-kv" style="color:${k.color};">${k.fmt?k.fmt(k.val):fmtN(k.val)}</div>
+        ${k.note?`<div style="font-size:10px;color:var(--muted);margin-top:2px;">${k.note}</div>`:''}
       </div>`).join('');
 
     // Barres vues par type

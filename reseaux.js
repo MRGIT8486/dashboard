@@ -1134,11 +1134,28 @@
       const txt = await r.text();
       const m   = txt.match(/google\.visualization\.Query\.setResponse\(([\s\S]*)\)/);
       if (!m) return [];
-      const j       = JSON.parse(m[1]);
-      const headers = j.table.cols.map(c => c.label || c.id);
+      const j        = JSON.parse(m[1]);
+      const headers  = j.table.cols.map(c => c.label || c.id);
+      const colTypes = j.table.cols.map(c => c.type);
       return (j.table.rows || []).map(row => {
         const obj = {};
-        headers.forEach((h, i) => { obj[h] = row.c?.[i]?.v ?? null; });
+        headers.forEach((h, i) => {
+          const cell = row.c?.[i];
+          if (!cell || cell.v === null || cell.v === undefined) { obj[h] = null; return; }
+          if (colTypes[i] === 'date' || colTypes[i] === 'datetime') {
+            // gviz retourne les dates comme "Date(2026,0,3)" — mois 0-indexé
+            const dv = String(cell.v);
+            const dm = dv.match(/Date\((\d+),(\d+),(\d+)/);
+            if (dm) {
+              const yr = parseInt(dm[1]), mo = parseInt(dm[2]), dy = parseInt(dm[3]);
+              obj[h] = yr + '-' + String(mo+1).padStart(2,'0') + '-' + String(dy).padStart(2,'0');
+            } else {
+              try { obj[h] = new Date(cell.v).toISOString().slice(0,10); } catch(e2) { obj[h] = String(cell.v); }
+            }
+          } else {
+            obj[h] = cell.v;
+          }
+        });
         return obj;
       });
     } catch(e) { return []; }

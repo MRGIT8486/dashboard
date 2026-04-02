@@ -104,6 +104,19 @@
         <!-- ══ STATS FB AVANCÉES ══ -->
         <div id="rs-s-stats" class="rs-s" style="display:none;">
 
+          <!-- Évolution journalière sur 90 jours -->
+          <div class="card" style="margin-bottom:14px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+              <div class="card-title">Vues — évolution journalière (90 jours)</div>
+              <div style="font-size:11px;color:var(--muted);" id="st-daily-note">Utilisez le bookmarklet v2 pour activer ce graphique</div>
+            </div>
+            <div class="chart-wrap" style="height:200px"><canvas id="st-ch-daily-vues"></canvas></div>
+          </div>
+          <div class="card" style="margin-bottom:14px;">
+            <div class="card-title">Interactions — évolution journalière (90 jours)</div>
+            <div class="chart-wrap" style="height:180px"><canvas id="st-ch-daily-inter"></canvas></div>
+          </div>
+
           <!-- KPIs principaux -->
           <div class="charts-grid" style="grid-template-columns:repeat(auto-fit,minmax(148px,1fr));gap:12px;margin-bottom:16px;" id="st-kpis-row"></div>
 
@@ -1134,10 +1147,10 @@
   window._stData = null;
 
   async function loadSheetData() {
-    const [vues, interactions, audience] = await Promise.all([
-      fetchSheet('Vues'), fetchSheet('Interactions'), fetchSheet('Audience'),
+    const [vues, interactions, audience, quotidien] = await Promise.all([
+      fetchSheet('Vues'), fetchSheet('Interactions'), fetchSheet('Audience'), fetchSheet('Quotidien'),
     ]);
-    window._stData = { vues, interactions, audience };
+    window._stData = { vues, interactions, audience, quotidien };
     renderStatsAvancees();
   }
 
@@ -1177,6 +1190,61 @@
     const v = d.vues?.[d.vues.length - 1];
     const i = d.interactions?.[d.interactions.length - 1];
     const a = d.audience?.[d.audience.length - 1];
+
+    // ── Graphiques journaliers depuis la feuille Quotidien ──
+    const quotidien = d.quotidien || [];
+    const dailyVues  = quotidien.filter(r => r.type === 'vues').sort((a,b) => String(a.date_point).localeCompare(String(b.date_point)));
+    const dailyInter = quotidien.filter(r => r.type === 'interactions').sort((a,b) => String(a.date_point).localeCompare(String(b.date_point)));
+
+    if (dailyVues.length > 0) {
+      set('st-daily-note', dailyVues.length + ' points · ' + String(dailyVues[0].date_point).slice(0,10) + ' → ' + String(dailyVues[dailyVues.length-1].date_point).slice(0,10));
+      const lblV = dailyVues.map(r => {
+        const d = new Date(r.date_point);
+        return d.toLocaleDateString('fr-BE', {day:'2-digit', month:'2-digit'});
+      });
+      makeSt('st-ch-daily-vues', {
+        type: 'line',
+        data: { labels: lblV, datasets: [{
+          data: dailyVues.map(r => r.valeur || 0),
+          borderColor: '#002EFF', backgroundColor: 'rgba(0,46,255,0.08)',
+          fill: true, tension: 0.3, pointRadius: dailyVues.length > 30 ? 0 : 3,
+          borderWidth: 2,
+        }]},
+        options: { responsive:true, maintainAspectRatio:false,
+          plugins: { legend: { display:false } },
+          scales: {
+            x: { grid:{display:false}, ticks:{font:{size:9}, maxTicksLimit:12, maxRotation:0} },
+            y: { grid:{color:'rgba(0,0,0,0.05)'}, ticks:{font:{size:10}, callback: v => fmtN(v)} },
+          }},
+      });
+    }
+
+    if (dailyInter.length > 0) {
+      const lblI = dailyInter.map(r => {
+        const d = new Date(r.date_point);
+        return d.toLocaleDateString('fr-BE', {day:'2-digit', month:'2-digit'});
+      });
+      makeSt('st-ch-daily-inter', {
+        type: 'bar',
+        data: { labels: lblI, datasets: [{
+          data: dailyInter.map(r => r.valeur || 0),
+          backgroundColor: 'rgba(220,39,67,0.55)', borderColor: '#dc2743',
+          borderWidth: dailyInter.length > 30 ? 0 : 1, borderRadius: 3,
+        }]},
+        options: { responsive:true, maintainAspectRatio:false,
+          plugins: { legend: { display:false } },
+          scales: {
+            x: { grid:{display:false}, ticks:{font:{size:9}, maxTicksLimit:12, maxRotation:0} },
+            y: { grid:{color:'rgba(0,0,0,0.05)'}, ticks:{font:{size:10}, callback: v => fmtN(v)} },
+          }},
+      });
+    }
+
+    // Message si pas encore de données journalières
+    if (dailyVues.length === 0 && dailyInter.length === 0) {
+      const noteEl = document.getElementById('st-daily-note');
+      if (noteEl) noteEl.innerHTML = '⚠️ Pas encore de données · <a href="/dashboard/installer_bookmarklet.html" target="_blank" style="color:var(--accent);">Réinstallez le bookmarklet v2</a> et recliquez sur Facebook';
+    }
 
     const noDataEl = document.getElementById('st-kpis-row');
     if (!v && !i && !a) {

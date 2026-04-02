@@ -674,7 +674,15 @@ input[type="text"]:focus,select:focus{border-color:var(--accent);}
               <div class="topbar-sub">Personnalités &amp; partis belges · mise à jour automatique</div>
             </div>
           </div>
-          <button class="btn-refresh" onclick="window.mediasRefresh && window.mediasRefresh()">↻ Actualiser</button>
+          <div style="display:flex;align-items:center;gap:10px;">
+            <select id="med-lang-filter" onchange="window.mediasLangFilter && window.mediasLangFilter()"
+              style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;font-family:'DM Sans',sans-serif;background:var(--surf);color:var(--text);outline:none;cursor:pointer;">
+              <option value="">🌐 Tous les médias</option>
+              <option value="FR">🇫🇷 Médias francophones</option>
+              <option value="NL">🇳🇱 Médias néerlandophones</option>
+            </select>
+            <button class="btn-refresh" id="med-btn-refresh" onclick="window.mediasActualiser ? window.mediasActualiser() : window.mediasRefresh && window.mediasRefresh()">↻ Actualiser</button>
+          </div>
         </div>
 
         <div class="subnav">
@@ -699,7 +707,7 @@ input[type="text"]:focus,select:focus{border-color:var(--accent);}
                 <div class="kpi"><div class="kpi-label">Mentions MR aujourd'hui</div><div class="kpi-value c-accent" id="med-k-today">—</div><div class="kpi-sub">articles détectés</div></div>
                 <div class="kpi"><div class="kpi-label">Mentions MR (7 jours)</div><div class="kpi-value c-blue" id="med-k-7j">—</div><div class="kpi-sub">cette semaine</div></div>
                 <div class="kpi"><div class="kpi-label">Mentions MR (30 jours)</div><div class="kpi-value c-purple" id="med-k-30j">—</div><div class="kpi-sub">ce mois-ci</div></div>
-                <div class="kpi"><div class="kpi-label">Ton MR</div><div class="kpi-value" id="med-k-ton" style="font-size:18px;font-weight:700;">—</div><div class="kpi-sub">sur 30 jours</div></div>
+                <div class="kpi"><div class="kpi-label">Part MR dans les médias</div><div class="kpi-value" id="med-k-part" style="font-size:22px;font-weight:700;">—</div><div class="kpi-sub" id="med-k-part-sub">articles hier</div></div>
               </div>
               <div class="charts-grid">
                 <div class="card">
@@ -708,8 +716,16 @@ input[type="text"]:focus,select:focus{border-color:var(--accent);}
                   <div class="chart-wrap" style="height:300px"><canvas id="med-ch-perso-top"></canvas></div>
                 </div>
                 <div class="card">
-                  <div class="card-title">Top médias</div>
-                  <div class="card-subtitle">Mentions sur 30 jours · % positif · % négatif</div>
+                  <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+                    <div>
+                      <div class="card-title">Top médias</div>
+                      <div class="card-subtitle">% positif (vert) · % négatif (rouge)</div>
+                    </div>
+                    <select id="med-top-media-parti" onchange="window.mediasTopMediaParti && window.mediasTopMediaParti(this.value)"
+                      style="padding:5px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;font-family:'DM Sans',sans-serif;background:var(--surf);color:var(--text);outline:none;cursor:pointer;">
+                      <option value="MR">MR</option>
+                    </select>
+                  </div>
                   <div id="med-bars-medias" style="margin-top:8px"></div>
                 </div>
               </div>
@@ -944,7 +960,7 @@ function elPageActivated() {
 <script src="newsletters.js?v=2"></script>
 <script src="membres-data.js?v=2"></script>
 <script src="membres.js?v=2"></script>
-<script src="medias.js?v=2"></script>
+<script src="medias.js?v=9"></script>
 <script src="elections-data.js?v=2"></script>
 <script src="elections.js?v=2"></script>
 <script src="reseaux.js?v=1"></script>

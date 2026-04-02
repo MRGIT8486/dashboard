@@ -104,6 +104,12 @@
         <!-- ══ STATS FB AVANCÉES ══ -->
         <div id="rs-s-stats" class="rs-s" style="display:none;">
 
+          <!-- Bandeau info filtres -->
+          <div style="display:flex;align-items:center;gap:10px;background:rgba(0,46,255,0.06);border:1px solid rgba(0,46,255,0.15);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:var(--muted);">
+            <span style="font-size:16px;">ℹ️</span>
+            <span>Ces statistiques viennent de votre <strong style="color:var(--text);">saisie via bookmarklet</strong> (90 jours). Les filtres <em>1 sem. / 1 mois / 2 mois</em> en haut ne s'appliquent pas ici.</span>
+          </div>
+
           <!-- Évolution journalière sur 90 jours -->
           <div class="card" style="margin-bottom:14px;">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
@@ -171,7 +177,7 @@
 
           <!-- Note source + bouton coller -->
           <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surf2);border-radius:8px;font-size:12px;color:var(--muted);">
-            <span id="st-source-note">Source : Google Sheet — dernière mise à jour via bookmarklet</span>
+            <span id="st-source-note">Source : Google Sheet (données saisies via bookmarklet) · Les filtres 1 sem. / 1 mois du haut s'appliquent uniquement aux onglets API temps réel</span>
             <button onclick="rsPasteStats()" style="background:var(--accent);color:#fff;border:none;border-radius:6px;padding:6px 14px;font-size:11px;font-family:'DM Sans',sans-serif;cursor:pointer;font-weight:500;">📋 Mettre à jour</button>
           </div>
         </div>
@@ -416,6 +422,10 @@
     document.querySelectorAll('.rs-tab').forEach(b => b.classList.remove('active'));
     document.getElementById('rs-s-' + id).style.display = 'block';
     btn.classList.add('active');
+    // Masquer les filtres réseau/période sur l'onglet Stats (données Sheet, pas API)
+    const filters = document.getElementById('rs-api-filters');
+    if (filters) filters.style.opacity = id === 'stats' ? '0.3' : '1';
+    if (filters) filters.style.pointerEvents = id === 'stats' ? 'none' : '';
     if (id === 'stats') {
       if (!window._stData) loadSheetData();
       else renderStatsAvancees();
@@ -1282,8 +1292,7 @@
       { label:'Réactions',            val:i?.reactions,          color:'#002EFF' },
       { label:'Commentaires',         val:i?.commentaires,       color:'#5500DD' },
       { label:'Partages',             val:i?.partages,           color:'#B86800' },
-      { label:'Fans nets',            val:a?.followers_nets,     color:'#1A8C3A', fmt: v=>(v>=0?'+':'')+fmtN(v) },
-      { label:'Désabonnements',       val:a?.desabonnements,     color:'#CC0022' },
+      // Fans nets et Désabonnements affichés dans la carte dédiée ci-dessous
     ].filter(k=>k.val!==null&&k.val!==undefined).map(k=>`
       <div class="card" style="padding:12px 14px;border-left:3px solid ${k.color};">
         <div class="rs-kl">${k.label}</div>
@@ -1312,10 +1321,14 @@
     });
 
     // Donut followers vs non-followers
-    if (v?.vues_followers_pct||v?.vues_nonfollowers_pct) makeSt('st-ch-fol-split',{
+    // Calculer la valeur manquante si une seule est renseignée
+    const folPct    = v?.vues_followers_pct    || null;
+    const nonFolPct = v?.vues_nonfollowers_pct || null;
+    // N'afficher le graphique que si on a les deux valeurs (sinon 100% incorrect)
+    if (folPct !== null && nonFolPct !== null) makeSt('st-ch-fol-split',{
       type:'doughnut',
       data:{labels:['Non-followers','Followers'],datasets:[{
-        data:[v.vues_nonfollowers_pct||0,v.vues_followers_pct||0],
+        data:[nonFolPct||0, folPct||0],
         backgroundColor:['rgba(0,46,255,.7)','rgba(26,140,58,.7)'],
         borderWidth:2,borderColor:'#fff'}]},
       options:{responsive:true,maintainAspectRatio:false,cutout:'60%',

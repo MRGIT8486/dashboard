@@ -83,6 +83,7 @@
             <button class="rs-per-btn" onclick="rsSetPeriod('all',this)">Tout</button>
           </div>
           <button class="btn-refresh" onclick="window._rsLoad(true)">↻</button>
+          <button onclick="rsPasteStats()" style="background:var(--green);color:#fff;border:none;border-radius:8px;padding:6px 12px;font-size:11px;font-family:'DM Sans',sans-serif;cursor:pointer;font-weight:500;" title="Coller les stats Facebook copiées par le bookmarklet">📋 Coller stats FB</button>
         </div>
       </div>
 
@@ -992,6 +993,54 @@
       </div>
     `).join('');
   }
+
+  // ── Fonction Coller stats Facebook ────────────────────────
+  const APPS_URL = 'https://script.google.com/macros/s/AKfycbxRvkaXvA1JvDvWaF25Y_6BHtoN2qseDRC-PqnQWo6CYT-21C74fbarHLA9afJj6rnF/exec';
+
+  window.rsPasteStats = async function() {
+    let json = '';
+    try {
+      json = await navigator.clipboard.readText();
+    } catch(e) {
+      json = prompt('Collez ici les données copiées depuis Facebook (via le favori) :') || '';
+    }
+    if (!json.trim()) return;
+
+    let data;
+    try {
+      data = JSON.parse(json.trim());
+    } catch(e) {
+      alert('❌ Les données ne semblent pas valides.\nAssurez-vous d\'avoir cliqué le favori "MR Facebook Stats" sur la page Facebook.');
+      return;
+    }
+
+    if (!data.type || !['vues','interactions','audience'].includes(data.type)) {
+      alert('❌ Type de données non reconnu : ' + data.type);
+      return;
+    }
+
+    // Notification envoi
+    const notif = document.createElement('div');
+    notif.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:99999;background:#002EFF;color:#fff;padding:14px 20px;border-radius:12px;font-family:sans-serif;font-size:13px;font-weight:600;box-shadow:0 6px 24px rgba(0,0,0,.25);';
+    notif.textContent = 'Envoi ' + data.type + ' vers Google Sheet…';
+    document.body.appendChild(notif);
+
+    try {
+      const res = await fetch(APPS_URL, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      });
+      const result = await res.json();
+      notif.style.background = result.ok ? '#1A8C3A' : '#CC0022';
+      notif.innerHTML = result.ok
+        ? '✅ ' + data.type + ' enregistré · ' + data.date_scrape + '<br><small style="font-weight:400;opacity:.85;">Période : ' + (data.periode_debut||'') + ' – ' + (data.periode_fin||'') + '</small>'
+        : '❌ Erreur : ' + result.error;
+    } catch(e) {
+      notif.style.background = '#CC0022';
+      notif.textContent = '❌ Erreur réseau : ' + e.message;
+    }
+    setTimeout(() => notif.remove(), 6000);
+  };
 
   // ── Init ───────────────────────────────────────────────────
   window.rsPageActivated = function() {

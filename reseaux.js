@@ -92,12 +92,75 @@
         <!-- Onglets -->
         <div style="display:flex;border-bottom:1px solid var(--border);margin-bottom:18px;overflow-x:auto;">
           <button class="rs-tab active" onclick="rsTab('global',this)">Vue globale</button>
+          <button class="rs-tab" onclick="rsTab('stats',this)">Stats FB avancées</button>
           <button class="rs-tab" onclick="rsTab('evolution',this)">Évolution</button>
           <button class="rs-tab" onclick="rsTab('posts',this)">Posts</button>
           <button class="rs-tab" onclick="rsTab('types',this)">Par type</button>
           <button class="rs-tab" onclick="rsTab('themes',this)">Thèmes</button>
           <button class="rs-tab" onclick="rsTab('facebook',this)">Facebook</button>
           <button class="rs-tab" onclick="rsTab('instagram',this)">Instagram</button>
+        </div>
+
+        <!-- ══ STATS FB AVANCÉES ══ -->
+        <div id="rs-s-stats" class="rs-s" style="display:none;">
+
+          <!-- KPIs principaux -->
+          <div class="charts-grid" style="grid-template-columns:repeat(auto-fit,minmax(148px,1fr));gap:12px;margin-bottom:16px;" id="st-kpis-row"></div>
+
+          <!-- Vues + Interactions côte à côte -->
+          <div class="charts-grid" style="gap:14px;margin-bottom:14px;">
+            <div class="card">
+              <div class="card-title">Répartition des vues par type de contenu</div>
+              <div style="font-size:11px;color:var(--muted);margin-bottom:8px;" id="st-periode-label"></div>
+              <div id="st-vues-bars" style="margin-top:8px;"></div>
+            </div>
+            <div class="card">
+              <div class="card-title">Répartition des interactions</div>
+              <div class="chart-wrap" style="height:200px"><canvas id="st-ch-inter-donut"></canvas></div>
+            </div>
+          </div>
+
+          <!-- Vues followers vs non-followers + qualité -->
+          <div class="charts-grid" style="gap:14px;margin-bottom:14px;">
+            <div class="card">
+              <div class="card-title">Vues — Followers vs Non-followers</div>
+              <div class="chart-wrap" style="height:180px"><canvas id="st-ch-fol-split"></canvas></div>
+            </div>
+            <div class="card">
+              <div class="card-title">Qualité des vues</div>
+              <div id="st-vues-quality" style="padding-top:8px;"></div>
+            </div>
+          </div>
+
+          <!-- Démographie audience -->
+          <div class="charts-grid" style="gap:14px;margin-bottom:14px;">
+            <div class="card">
+              <div class="card-title">Répartition par âge (audience)</div>
+              <div class="chart-wrap" style="height:220px"><canvas id="st-ch-age"></canvas></div>
+            </div>
+            <div class="card">
+              <div class="card-title">Pays d'origine</div>
+              <div id="st-pays-bars" style="margin-top:8px;"></div>
+            </div>
+          </div>
+
+          <!-- Villes + Audience nets -->
+          <div class="charts-grid" style="gap:14px;margin-bottom:14px;">
+            <div class="card">
+              <div class="card-title">Principales villes</div>
+              <div id="st-villes-bars" style="margin-top:8px;"></div>
+            </div>
+            <div class="card">
+              <div class="card-title">Abonnements nets</div>
+              <div id="st-audience-kpis" style="margin-top:8px;"></div>
+            </div>
+          </div>
+
+          <!-- Note source + bouton coller -->
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surf2);border-radius:8px;font-size:12px;color:var(--muted);">
+            <span id="st-source-note">Source : Google Sheet — dernière mise à jour via bookmarklet</span>
+            <button onclick="rsPasteStats()" style="background:var(--accent);color:#fff;border:none;border-radius:6px;padding:6px 14px;font-size:11px;font-family:'DM Sans',sans-serif;cursor:pointer;font-weight:500;">📋 Mettre à jour</button>
+          </div>
         </div>
 
         <!-- ══ VUE GLOBALE ══ -->
@@ -340,6 +403,10 @@
     document.querySelectorAll('.rs-tab').forEach(b => b.classList.remove('active'));
     document.getElementById('rs-s-' + id).style.display = 'block';
     btn.classList.add('active');
+    if (id === 'stats') {
+      if (!window._stData) loadSheetData();
+      else renderStatsAvancees();
+    }
     refreshCharts();
   };
 
@@ -1035,12 +1102,193 @@
       notif.innerHTML = result.ok
         ? '✅ ' + data.type + ' enregistré · ' + data.date_scrape + '<br><small style="font-weight:400;opacity:.85;">Période : ' + (data.periode_debut||'') + ' – ' + (data.periode_fin||'') + '</small>'
         : '❌ Erreur : ' + result.error;
+      // Recharger les données Sheet si succès
+      if (result.ok) { window._stData = null; loadSheetData(); }
     } catch(e) {
       notif.style.background = '#CC0022';
       notif.textContent = '❌ Erreur réseau : ' + e.message;
     }
     setTimeout(() => notif.remove(), 6000);
   };
+
+  // ── Chargement Google Sheet ────────────────────────────────
+  const SHEET_ID   = '1uw13osMAhdhI975BfRYtyX8Liyd78ApMIL-aFUG79ko';
+  const SHEET_BASE = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=`;
+
+  async function fetchSheet(name) {
+    try {
+      const r   = await fetch(SHEET_BASE + encodeURIComponent(name));
+      const txt = await r.text();
+      const m   = txt.match(/google\.visualization\.Query\.setResponse\(([\s\S]*)\)/);
+      if (!m) return [];
+      const j       = JSON.parse(m[1]);
+      const headers = j.table.cols.map(c => c.label || c.id);
+      return (j.table.rows || []).map(row => {
+        const obj = {};
+        headers.forEach((h, i) => { obj[h] = row.c?.[i]?.v ?? null; });
+        return obj;
+      });
+    } catch(e) { return []; }
+  }
+
+  window._stData = null;
+
+  async function loadSheetData() {
+    const [vues, interactions, audience] = await Promise.all([
+      fetchSheet('Vues'), fetchSheet('Interactions'), fetchSheet('Audience'),
+    ]);
+    window._stData = { vues, interactions, audience };
+    renderStatsAvancees();
+  }
+
+  function fmtN(n) {
+    if (!n && n !== 0) return '—';
+    if (n >= 1000000) return (n/1000000).toFixed(1).replace('.',',') + '\u00a0M';
+    if (n >= 10000)   return Math.round(n/1000) + '\u00a0k';
+    if (n >= 1000)    return (Math.round(n/100)/10).toFixed(1).replace('.',',') + '\u00a0k';
+    return Number(n).toLocaleString('fr-BE');
+  }
+
+  const _stCharts = {};
+  function makeSt(id, cfg) {
+    if (_stCharts[id]) { try { _stCharts[id].destroy(); } catch(e){} }
+    const c = document.getElementById(id);
+    if (!c || typeof Chart === 'undefined') return;
+    _stCharts[id] = new Chart(c, cfg);
+  }
+
+  function renderBars(elId, items, color) {
+    const el = document.getElementById(elId);
+    if (!el) return;
+    const max = Math.max(...items.map(t => t.val || 0), 1);
+    el.innerHTML = items.filter(t => t.val > 0).map(t => `
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:9px;font-size:12px;">
+        <div style="min-width:110px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${t.label}">${t.label}</div>
+        <div style="flex:1;height:8px;background:var(--surf2);border-radius:4px;overflow:hidden;">
+          <div style="width:${(t.val/max*100).toFixed(0)}%;height:100%;background:${t.color||color};border-radius:4px;transition:width .6s ease;"></div>
+        </div>
+        <div style="min-width:38px;text-align:right;font-weight:500;">${t.val.toFixed(1)}%</div>
+      </div>`).join('');
+  }
+
+  function renderStatsAvancees() {
+    const d = window._stData;
+    if (!d) return;
+    const v = d.vues?.[d.vues.length - 1];
+    const i = d.interactions?.[d.interactions.length - 1];
+    const a = d.audience?.[d.audience.length - 1];
+
+    const noDataEl = document.getElementById('st-kpis-row');
+    if (!v && !i && !a) {
+      if (noDataEl) noDataEl.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:20px 0;grid-column:1/-1;">Aucune donnée. Utilisez le bookmarklet Facebook puis "📋 Coller stats FB".</div>';
+      return;
+    }
+
+    const periodeLabel = v?.periode_debut && v?.periode_fin
+      ? `Période : ${v.periode_debut} – ${String(v.periode_fin).slice(0,10)}` : '';
+    set('st-periode-label', periodeLabel);
+    set('st-source-note', 'Source : Google Sheet · ' + periodeLabel);
+
+    // KPIs
+    if (noDataEl) noDataEl.innerHTML = [
+      { label:'Fans Facebook',        val:a?.followers_total,    color:'#1877F2' },
+      { label:'Vues totales',         val:v?.vues_total,         color:'#002EFF' },
+      { label:'Interactions totales', val:i?.interactions_total, color:'#dc2743' },
+      { label:'Réactions',            val:i?.reactions,          color:'#002EFF' },
+      { label:'Commentaires',         val:i?.commentaires,       color:'#5500DD' },
+      { label:'Partages',             val:i?.partages,           color:'#B86800' },
+      { label:'Fans nets',            val:a?.followers_nets,     color:'#1A8C3A', fmt: v=>(v>=0?'+':'')+fmtN(v) },
+      { label:'Désabonnements',       val:a?.desabonnements,     color:'#CC0022' },
+    ].filter(k=>k.val!==null&&k.val!==undefined).map(k=>`
+      <div class="card" style="padding:12px 14px;border-left:3px solid ${k.color};">
+        <div class="rs-kl">${k.label}</div>
+        <div class="rs-kv" style="color:${k.color};">${k.fmt?k.fmt(k.val):fmtN(k.val)}</div>
+      </div>`).join('');
+
+    // Barres vues par type
+    renderBars('st-vues-bars', [
+      {label:'Photo',            val:v?.vues_photo_pct,    color:'#002EFF'},
+      {label:'Reel',             val:v?.vues_reel_pct,     color:'#dc2743'},
+      {label:'Plusieurs photos', val:v?.vues_carousel_pct, color:'#B86800'},
+      {label:'Story',            val:v?.vues_story_pct,    color:'#5500DD'},
+      {label:'En direct',        val:v?.vues_live_pct,     color:'#0077AA'},
+      {label:'Autre',            val:v?.vues_autre_pct,    color:'#9AA5C8'},
+    ].filter(t=>t.val>0).sort((a,b)=>b.val-a.val), '#002EFF');
+
+    // Donut interactions
+    if (i?.reactions||i?.commentaires||i?.partages) makeSt('st-ch-inter-donut',{
+      type:'doughnut',
+      data:{labels:['Réactions','Commentaires','Partages'],datasets:[{
+        data:[i.reactions||0,i.commentaires||0,i.partages||0],
+        backgroundColor:['rgba(0,46,255,.75)','rgba(220,39,67,.75)','rgba(184,104,0,.75)'],
+        borderWidth:2,borderColor:'#fff'}]},
+      options:{responsive:true,maintainAspectRatio:false,cutout:'62%',
+        plugins:{legend:{display:true,position:'bottom',labels:{font:{size:11},boxWidth:12}}}},
+    });
+
+    // Donut followers vs non-followers
+    if (v?.vues_followers_pct||v?.vues_nonfollowers_pct) makeSt('st-ch-fol-split',{
+      type:'doughnut',
+      data:{labels:['Non-followers','Followers'],datasets:[{
+        data:[v.vues_nonfollowers_pct||0,v.vues_followers_pct||0],
+        backgroundColor:['rgba(0,46,255,.7)','rgba(26,140,58,.7)'],
+        borderWidth:2,borderColor:'#fff'}]},
+      options:{responsive:true,maintainAspectRatio:false,cutout:'60%',
+        plugins:{legend:{display:true,position:'bottom',labels:{font:{size:11},boxWidth:12}}}},
+    });
+
+    // Qualité vues
+    const qEl = document.getElementById('st-vues-quality');
+    if (qEl&&v) qEl.innerHTML = [
+      {label:'Vues totales',    val:fmtN(v.vues_total)},
+      {label:'Vues 3 secondes', val:v.vues_3s?fmtN(v.vues_3s)+(v.vues_total?' ('+(v.vues_3s/v.vues_total*100).toFixed(1)+'%)':''):'—'},
+      {label:'Vues 1 minute',   val:v.vues_1min?fmtN(v.vues_1min)+(v.vues_total?' ('+(v.vues_1min/v.vues_total*100).toFixed(1)+'%)':''):'—'},
+      {label:'Reach followers',      val:v.vues_followers_pct?v.vues_followers_pct.toFixed(1)+'%':'—'},
+      {label:'Reach non-followers',  val:v.vues_nonfollowers_pct?v.vues_nonfollowers_pct.toFixed(1)+'%':'—'},
+    ].map(r=>`<div style="display:flex;justify-content:space-between;padding:6px 0;font-size:12px;border-bottom:1px solid var(--border);"><span style="color:var(--muted);">${r.label}</span><strong>${r.val}</strong></div>`).join('');
+
+    // Âge
+    if (a) {
+      const ageV=[a.age_18_24||0,a.age_25_34||0,a.age_35_44||0,a.age_45_54||0,a.age_55_64||0,a.age_65plus||0];
+      makeSt('st-ch-age',{type:'bar',
+        data:{labels:['18–24','25–34','35–44','45–54','55–64','65+'],datasets:[{data:ageV,
+          backgroundColor:'rgba(0,46,255,.65)',borderColor:'#002EFF',borderWidth:1.5,borderRadius:5}]},
+        options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
+          scales:{x:{grid:{display:false},ticks:{font:{size:11}}},
+            y:{max:Math.max(...ageV)+3,ticks:{callback:v=>v+'%',font:{size:10}},grid:{color:'rgba(0,0,0,0.05)'}}}},
+      });
+
+      renderBars('st-pays-bars',[
+        {label:a.pays_1_nom,val:a.pays_1_pct,color:'#002EFF'},
+        {label:a.pays_2_nom,val:a.pays_2_pct,color:'#002EFF'},
+        {label:a.pays_3_nom,val:a.pays_3_pct,color:'#002EFF'},
+        {label:a.pays_4_nom,val:a.pays_4_pct,color:'#002EFF'},
+      ].filter(p=>p.label&&p.val>0),'#002EFF');
+
+      renderBars('st-villes-bars',[
+        {label:a.ville_1_nom,val:a.ville_1_pct,color:'#0077AA'},
+        {label:a.ville_2_nom,val:a.ville_2_pct,color:'#0077AA'},
+        {label:a.ville_3_nom,val:a.ville_3_pct,color:'#0077AA'},
+        {label:a.ville_4_nom,val:a.ville_4_pct,color:'#0077AA'},
+        {label:a.ville_5_nom,val:a.ville_5_pct,color:'#0077AA'},
+        {label:a.ville_6_nom,val:a.ville_6_pct,color:'#0077AA'},
+      ].filter(v=>v.label&&v.val>0),'#0077AA');
+
+      const audEl=document.getElementById('st-audience-kpis');
+      if(audEl) audEl.innerHTML=`
+        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
+          <div style="flex:1;min-width:100px;background:rgba(26,140,58,.08);border:1px solid rgba(26,140,58,.2);border-radius:8px;padding:12px 14px;">
+            <div class="rs-kl">Nouveaux fans nets</div>
+            <div style="font-size:22px;font-weight:700;font-family:'Syne',sans-serif;color:#1A8C3A;">+${fmtN(a.followers_nets||0)}</div>
+          </div>
+          <div style="flex:1;min-width:100px;background:rgba(204,0,34,.08);border:1px solid rgba(204,0,34,.2);border-radius:8px;padding:12px 14px;">
+            <div class="rs-kl">Désabonnements</div>
+            <div style="font-size:22px;font-weight:700;font-family:'Syne',sans-serif;color:#CC0022;">${fmtN(a.desabonnements||0)}</div>
+          </div>
+        </div>
+        <div style="font-size:12px;color:var(--muted);">Évolution : <strong style="color:${(a.followers_delta_pct||0)>=0?'#1A8C3A':'#CC0022'};">${(a.followers_delta_pct||0)>=0?'+':''}${(a.followers_delta_pct||0).toFixed(1)}%</strong> vs période précédente</div>`;
+    }
+  }
 
   // ── Init ───────────────────────────────────────────────────
   window.rsPageActivated = function() {

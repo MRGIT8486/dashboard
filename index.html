@@ -249,6 +249,45 @@ input[type="text"]:focus,select:focus{border-color:var(--accent);}
   .kpi-grid{grid-template-columns:repeat(2,1fr);}
   .kpi-value{font-size:22px;}
 }
+
+/* ── MODULE ÉLECTIONS ─────────────────────────────────────── */
+/* Pills de sélection (dates, niveaux) */
+.el-pills-row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;}
+.el-pill{background:var(--surf2);border:1px solid var(--border);color:var(--muted);border-radius:20px;padding:6px 14px;font-size:13px;font-family:'DM Sans',sans-serif;cursor:pointer;transition:background .15s,color .15s,border-color .15s;white-space:nowrap;}
+.el-pill:hover{background:var(--surf3);color:var(--text);}
+.el-pill.active{background:rgba(0,46,255,.12);color:var(--accent);border-color:var(--accent);font-weight:600;}
+.el-pill-sm{background:var(--surf2);border:1px solid var(--border);color:var(--muted);border-radius:16px;padding:4px 12px;font-size:12px;font-family:'DM Sans',sans-serif;cursor:pointer;transition:background .15s,color .15s;white-space:nowrap;}
+.el-pill-sm:hover{background:var(--surf3);color:var(--text);}
+.el-pill-sm.active{background:rgba(0,46,255,.10);color:var(--accent);border-color:var(--accent);font-weight:600;}
+.el-pill-xs{background:var(--surf2);border:1px solid var(--border);color:var(--muted);border-radius:12px;padding:3px 10px;font-size:11px;font-family:'DM Sans',sans-serif;cursor:pointer;white-space:nowrap;transition:background .15s;}
+.el-pill-xs.active{background:rgba(0,46,255,.10);color:var(--accent);border-color:var(--accent);font-weight:600;}
+/* Sélecteur de circonscription */
+.el-circ-box{margin-bottom:14px;}
+.el-circ-row{display:flex;align-items:flex-start;gap:8px;margin-bottom:6px;flex-wrap:wrap;}
+.el-circ-sub{display:flex;flex-wrap:wrap;gap:4px;}
+.el-circ-lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;padding-top:5px;flex-shrink:0;}
+.el-circ-btns{display:flex;flex-wrap:wrap;gap:4px;}
+/* Dot couleur parti */
+.dot-party{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:7px;vertical-align:middle;flex-shrink:0;}
+/* Messages vides / erreur */
+.el-empty{color:var(--muted);padding:32px 20px;text-align:center;font-size:13px;}
+.el-error-box{background:rgba(204,0,34,.08);border:1px solid rgba(204,0,34,.25);color:#CC0022;border-radius:10px;padding:16px 20px;margin:8px 0;font-size:13px;line-height:1.6;}
+/* Tooltip Leaflet */
+.el-map-tooltip{background:#fff;border:1px solid var(--border);border-radius:8px;padding:8px 12px;font-size:12px;line-height:1.5;box-shadow:0 4px 12px rgba(0,0,0,.12);}
+/* ── Dropdown recherche circonscription ── */
+.el-dd-item{display:flex;align-items:center;justify-content:space-between;padding:9px 14px;cursor:pointer;border-bottom:1px solid var(--border);font-size:12px;transition:background .12s;}
+.el-dd-item:last-child{border-bottom:none;}
+.el-dd-item:hover{background:rgba(0,46,255,.06);}
+.el-dd-badge{background:rgba(0,46,255,.1);color:var(--accent);font-size:10px;font-weight:600;padding:2px 7px;border-radius:10px;margin-left:8px;white-space:nowrap;}
+/* Sélecteur sièges avec recherche */
+#el-seats-search-wrap{display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap;}
+#el-seats-search-wrap input{flex:1;min-width:180px;max-width:320px;box-sizing:border-box;padding:5px 12px;border:1px solid var(--border);border-radius:20px;font-size:12px;background:var(--surf2);color:var(--text);outline:none;}
+.leaflet-tooltip.el-map-tooltip{border-radius:8px;}
+/* Loading élections */
+#el-loading{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:80px 28px;gap:14px;color:var(--muted);}
+/* Sections de vue */
+#el-sec-pct,#el-sec-seats,#el-sec-map{display:none;}
+
 </style>
 </head>
 <body>
@@ -300,10 +339,10 @@ input[type="text"]:focus,select:focus{border-color:var(--accent);}
     <div class="sb-section">
       <button class="nav-item" onclick="showPage('medias',this)"><span class="nav-icon">📰</span>Présence médias<span class="nav-badge live">Live</span></button>
       <button class="nav-item" onclick="showPage('militants',this);mbPageActivated();"><span class="nav-icon">👥</span>Militants &amp; membres<span class="nav-badge live">Live</span></button>
+      <button class="nav-item" onclick="showPage('elections',this);elPageActivated();"><span class="nav-icon">🗳️</span>Résultats électoraux<span class="nav-badge live">Live</span></button>
+      <button class="nav-item" onclick="showPage('reseaux',this);rsPageActivated();"><span class="nav-icon">📱</span>Réseaux sociaux<span class="nav-badge live">Live</span></button>
       <div class="sb-label">À venir</div>
-      <button class="nav-item" onclick="showPage('elections',this)"><span class="nav-icon">🗳️</span>Résultats électoraux<span class="nav-badge">Bientôt</span></button>
       <button class="nav-item" onclick="showPage('sondages',this)"><span class="nav-icon">📊</span>Sondages &amp; opinion<span class="nav-badge">Bientôt</span></button>
-      <button class="nav-item" onclick="showPage('reseaux',this)"><span class="nav-icon">📱</span>Réseaux sociaux<span class="nav-badge">Bientôt</span></button>
       <button class="nav-item" onclick="showPage('contacts',this)"><span class="nav-icon">✉️</span>Nouveaux contacts<span class="nav-badge">Bientôt</span></button>
       <button class="nav-item" onclick="showPage('evenements',this)"><span class="nav-icon">📅</span>Événements<span class="nav-badge">Bientôt</span></button>
     </div>
@@ -577,9 +616,173 @@ input[type="text"]:focus,select:focus{border-color:var(--accent);}
       </div>
 
       <!-- PAGES À VENIR -->
-      <div class="page" id="page-elections"><div class="topbar"><div class="topbar-left"><button class="hamburger" onclick="openSidebar()">☰</button><div><div class="topbar-title">Résultats électoraux</div></div></div></div><div class="coming-soon"><div class="cs-icon">🗳️</div><h3>Module en préparation</h3><p>Les résultats électoraux seront disponibles ici dès que les données seront intégrées dans un Google Sheet.</p></div></div>
+      <!-- ══ PAGE RÉSULTATS ÉLECTORAUX ══ -->
+      <div class="page" id="page-elections">
+
+        <!-- TOPBAR -->
+        <div class="topbar">
+          <div class="topbar-left">
+            <button class="hamburger" onclick="openSidebar()">☰</button>
+            <div>
+              <div class="topbar-title">Résultats électoraux</div>
+              <div class="topbar-sub">Données officielles IBZ · Belgium</div>
+            </div>
+          </div>
+          <button class="btn-refresh" onclick="window.elLoad && window.elLoad()">↻ Actualiser</button>
+        </div>
+
+        <!-- SUBNAV : onglets de vue -->
+        <div class="subnav" id="el-view-tabs"></div>
+
+        <!-- SÉLECTEURS -->
+        <main style="padding-bottom:0">
+          <div style="margin-bottom:12px">
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px">Scrutin</div>
+            <div class="el-pills-row" id="el-date-wrap"></div>
+          </div>
+          <div style="margin-bottom:16px">
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px">Niveau de pouvoir</div>
+            <div class="el-pills-row" id="el-level-wrap"></div>
+          </div>
+        </main>
+
+        <!-- SPINNER -->
+        <div id="el-loading" style="display:none">
+          <div class="spinner"></div>
+          <span>Chargement des données électorales…</span>
+        </div>
+
+        <!-- CONTENU -->
+        <div id="el-content" style="display:none">
+          <main>
+            <div id="el-sec-pct"><div id="el-pct-wrap"></div></div>
+            <div id="el-sec-seats"><div id="el-seats-wrap"></div></div>
+            <div id="el-sec-map"></div>
+          </main>
+        </div>
+
+      </div>
+      <!-- ══ FIN PAGE RÉSULTATS ÉLECTORAUX ══ -->
       <div class="page" id="page-sondages"><div class="topbar"><div class="topbar-left"><button class="hamburger" onclick="openSidebar()">☰</button><div><div class="topbar-title">Sondages &amp; opinion</div></div></div></div><div class="coming-soon"><div class="cs-icon">📊</div><h3>Module en préparation</h3><p>Le suivi des sondages sera disponible ici prochainement.</p></div></div>
-      <div class="page" id="page-medias"><div class="topbar"><div class="topbar-left"><button class="hamburger" onclick="openSidebar()">☰</button><div><div class="topbar-title">Présence médias</div></div></div></div><div class="coming-soon"><div class="cs-icon">📰</div><h3>Module en préparation</h3><p>Le suivi des mentions médias sera disponible ici prochainement.</p></div></div>
+      <!-- ══ PAGE MÉDIAS ══ -->
+      <div class="page" id="page-medias">
+        <div class="topbar">
+          <div class="topbar-left">
+            <button class="hamburger" onclick="openSidebar()">☰</button>
+            <div>
+              <div class="topbar-title">Présence médias</div>
+              <div class="topbar-sub">Personnalités &amp; partis belges · mise à jour automatique</div>
+            </div>
+          </div>
+          <button class="btn-refresh" onclick="window.mediasRefresh && window.mediasRefresh()">↻ Actualiser</button>
+        </div>
+
+        <div class="subnav">
+          <button class="active" onclick="showTabMedias('vue-ensemble',this)">Vue d'ensemble</button>
+          <button onclick="showTabMedias('personnalites',this)">Personnalités</button>
+          <button onclick="showTabMedias('partis',this)">Par parti</button>
+          <button onclick="showTabMedias('evolution',this)">Évolution</button>
+          <button onclick="showTabMedias('articles',this)">Articles</button>
+        </div>
+
+        <div id="medias-loading" style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:80px 28px;gap:16px;color:var(--muted);">
+          <div class="spinner"></div>
+          <span>Connexion à Google Sheets…</span>
+        </div>
+
+        <div id="medias-content" style="display:none;">
+          <main>
+
+            <!-- VUE D'ENSEMBLE -->
+            <div class="tab-section active" id="med-tab-vue-ensemble">
+              <div class="kpi-grid">
+                <div class="kpi"><div class="kpi-label">Mentions MR aujourd'hui</div><div class="kpi-value c-accent" id="med-k-today">—</div><div class="kpi-sub">articles détectés</div></div>
+                <div class="kpi"><div class="kpi-label">Mentions MR (7 jours)</div><div class="kpi-value c-blue" id="med-k-7j">—</div><div class="kpi-sub">cette semaine</div></div>
+                <div class="kpi"><div class="kpi-label">Mentions MR (30 jours)</div><div class="kpi-value c-purple" id="med-k-30j">—</div><div class="kpi-sub">ce mois-ci</div></div>
+                <div class="kpi"><div class="kpi-label">Ton MR</div><div class="kpi-value" id="med-k-ton" style="font-size:18px;font-weight:700;">—</div><div class="kpi-sub">sur 30 jours</div></div>
+              </div>
+              <div class="charts-grid">
+                <div class="card">
+                  <div class="card-title">Top 10 personnalités — 30 jours</div>
+                  <div class="card-subtitle">Couleur = parti · survol pour le détail du ton</div>
+                  <div class="chart-wrap" style="height:300px"><canvas id="med-ch-perso-top"></canvas></div>
+                </div>
+                <div class="card">
+                  <div class="card-title">Top médias</div>
+                  <div class="card-subtitle">Mentions sur 30 jours · % positif · % négatif</div>
+                  <div id="med-bars-medias" style="margin-top:8px"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- PERSONNALITÉS -->
+            <div class="tab-section" id="med-tab-personnalites">
+              <div class="card">
+                <div class="card-title">Toutes les personnalités surveillées — 30 jours</div>
+                <div class="card-subtitle">Classées par nombre de mentions décroissant</div>
+                <div class="table-wrap">
+                  <table>
+                    <thead><tr><th>Personnalité</th><th>Parti</th><th>Mentions</th><th>% Positif</th><th>% Négatif</th></tr></thead>
+                    <tbody id="med-tbl-perso"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <!-- PAR PARTI -->
+            <div class="tab-section" id="med-tab-partis">
+              <div class="card" style="margin-bottom:16px">
+                <div class="card-title">Mentions par parti — 30 jours</div>
+                <div class="card-subtitle">Nombre total d'articles par parti politique · survol pour le détail du ton</div>
+                <div class="chart-wrap" style="height:280px"><canvas id="med-ch-parti-bar"></canvas></div>
+              </div>
+              <div class="card">
+                <div class="card-title">Ton par parti — 30 jours</div>
+                <div class="card-subtitle">Répartition positif / neutre / négatif en % par parti</div>
+                <div class="chart-wrap" style="height:260px"><canvas id="med-ch-parti-ton"></canvas></div>
+              </div>
+            </div>
+
+            <!-- ÉVOLUTION -->
+            <div class="tab-section" id="med-tab-evolution">
+              <div class="card">
+                <div class="card-title">Évolution des mentions — 30 derniers jours</div>
+                <div class="card-subtitle">Total (trait pointillé) + top 5 partis par jour</div>
+                <div class="chart-wrap" style="height:320px"><canvas id="med-ch-evolution"></canvas></div>
+              </div>
+            </div>
+
+            <!-- ARTICLES -->
+            <div class="tab-section" id="med-tab-articles">
+              <div class="card">
+                <div class="card-title">Articles des 30 derniers jours</div>
+                <div class="card-subtitle">Recherchez par personnalité ou par parti</div>
+                <div style="display:flex;gap:10px;margin:14px 0 4px;">
+                  <div style="position:relative;flex:1;">
+                    <span style="position:absolute;left:11px;top:50%;transform:translateY(-50%);font-size:14px;color:var(--muted);">🔍</span>
+                    <input id="med-search"
+                      type="text"
+                      placeholder="Chercher une personnalité, un parti, un média…"
+                      oninput="window.mediasSearch(this.value)"
+                      style="width:100%;padding:9px 12px 9px 34px;border:1px solid var(--border);border-radius:8px;font-size:13px;font-family:'DM Sans',sans-serif;background:var(--surf);color:var(--text);outline:none;box-sizing:border-box;">
+                  </div>
+                  <select id="med-filter-ton" onchange="window.mediasSearch(document.getElementById('med-search').value)"
+                    style="padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;font-family:'DM Sans',sans-serif;background:var(--surf);color:var(--text);outline:none;cursor:pointer;">
+                    <option value="">Tous les tons</option>
+                    <option value="positif">Positif</option>
+                    <option value="neutre">Neutre</option>
+                    <option value="negatif">Négatif</option>
+                  </select>
+                </div>
+                <div id="med-search-info" style="font-size:12px;color:var(--muted);margin-bottom:10px;"></div>
+                <div id="med-articles-list"></div>
+              </div>
+            </div>
+
+          </main>
+        </div>
+      </div>
+      <!-- ══ FIN PAGE MÉDIAS ══ -->
       <!-- ══ PAGE MILITANTS & MEMBRES ══ -->
       <div class="page" id="page-militants">
         <div class="topbar">
@@ -665,7 +868,7 @@ input[type="text"]:focus,select:focus{border-color:var(--accent);}
         </main>
       </div>
       <!-- ══ FIN PAGE MILITANTS ══ -->
-      <div class="page" id="page-reseaux"><div class="topbar"><div class="topbar-left"><button class="hamburger" onclick="openSidebar()">☰</button><div><div class="topbar-title">Réseaux sociaux</div></div></div></div><div class="coming-soon"><div class="cs-icon">📱</div><h3>Module en préparation</h3><p>Les statistiques réseaux sociaux seront disponibles ici prochainement.</p></div></div>
+      <div class="page" id="page-reseaux"></div>
       <div class="page" id="page-contacts"><div class="topbar"><div class="topbar-left"><button class="hamburger" onclick="openSidebar()">☰</button><div><div class="topbar-title">Nouveaux contacts</div></div></div></div><div class="coming-soon"><div class="cs-icon">✉️</div><h3>Module en préparation</h3><p>Le suivi des nouveaux contacts sera disponible ici prochainement.</p></div></div>
       <div class="page" id="page-evenements"><div class="topbar"><div class="topbar-left"><button class="hamburger" onclick="openSidebar()">☰</button><div><div class="topbar-title">Événements</div></div></div></div><div class="coming-soon"><div class="cs-icon">📅</div><h3>Module en préparation</h3><p>Le calendrier des événements sera disponible ici prochainement.</p></div></div>
 
@@ -682,6 +885,11 @@ function showPage(id, btn) {
   document.getElementById('page-' + id).classList.add('active');
   btn.classList.add('active');
   closeSidebar();
+  // Activation lazy des modules
+  if(id === 'newsletters') nlPageActivated();
+  if(id === 'militants')   mbPageActivated();
+  if(id === 'elections')   elPageActivated();
+  if(id === 'reseaux')     rsPageActivated();
 }
 
 // Tab conférences (scoped)
@@ -720,13 +928,26 @@ function mbPageActivated() {
     window.mbLoad();
   }
 }
+
+// ── Activation lazy du module élections ───────────────────────
+var _elLoaded = false;
+function elPageActivated() {
+  if (!_elLoaded && window.elLoad) {
+    _elLoaded = true;
+    window.elLoad();
+  }
+}
 </script>
 
 <!-- Modules -->
-<script src="conferences.js"></script>
-<script src="newsletters.js"></script>
-<script src="membres-data.js"></script>
-<script src="membres.js"></script>
+<script src="conferences.js?v=2"></script>
+<script src="newsletters.js?v=2"></script>
+<script src="membres-data.js?v=2"></script>
+<script src="membres.js?v=2"></script>
+<script src="medias.js?v=2"></script>
+<script src="elections-data.js?v=2"></script>
+<script src="elections.js?v=2"></script>
+<script src="reseaux.js?v=1"></script>
 
 <!-- ── SYSTÈME DE CONNEXION ── -->
 <script>

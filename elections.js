@@ -1,6 +1,9 @@
 // ══════════════════════════════════════════════════════════════
-//  elections.js  —  Module Résultats électoraux  v1.3
-//  MR Dashboard
+//  elections.js  v2.0
+//  Nouvelles fonctionnalités :
+//  - Onglet Évolution (comparaison 2014/2019/2024)
+//  - Carte : mode parti avec dégradé de couleur
+//  - Carte : tooltip avec % du parti
 // ══════════════════════════════════════════════════════════════
 (function(){
 
@@ -15,7 +18,20 @@ var S = {
   chartPct     : null,
   seatsCircoKey: '_national',
   mapLevel     : 'province',
+  // Carte : mode
+  mapMode      : 'winner',   // 'winner' ou 'parti'
+  mapParti     : null,       // parti sélectionné en mode 'parti'
+  // Évolution
+  evoLevelKey  : null,
+  evoCircoKey  : '_national',
+  evoMetric    : 'pct',      // 'pct', 'votes', 'seats'
+  evoData      : {},         // cache par levelKey
 };
+
+// Années disponibles pour l'évolution (qui ont des JSON)
+var EVO_YEARS = ['2014', '2019', '2024'];
+// Map electionId → année courte
+function elecYear(id){ return id ? id.split('-')[0] : ''; }
 
 // ── Point d'entrée ────────────────────────────────────────────
 window.elLoad = function(){
@@ -46,14 +62,14 @@ function buildSelectors(){
       var b = document.createElement('button');
       b.className = 'el-pill el-pill-sm'+(lv.key===S.levelKey?' active':'');
       b.innerHTML = lv.icon+' '+lv.label;
-      b.onclick = function(){ S.levelKey=lv.key; S.data=null; S.seatsCircoKey='_national'; buildSelectors(); loadData(); };
+      b.onclick = function(){ S.levelKey=lv.key; S.data=null; S.seatsCircoKey='_national'; S.evoData={}; buildSelectors(); loadData(); };
       lw.appendChild(b);
     });
   }
 
   var vw = document.getElementById('el-view-tabs');
   if(vw){
-    var views = [{k:'pct',l:'% des voix'},{k:'seats',l:'Assemblée / sièges'},{k:'map',l:'🗺 Carte'}];
+    var views = [{k:'pct',l:'% des voix'},{k:'seats',l:'Assemblée / sièges'},{k:'map',l:'🗺 Carte'},{k:'evo',l:'📈 Évolution'}];
     vw.innerHTML = '';
     views.forEach(function(v){
       var b = document.createElement('button');
@@ -65,7 +81,7 @@ function buildSelectors(){
   }
 }
 
-// ── Chargement : JSON repo → proxy XML ───────────────────────
+// ── Chargement données ────────────────────────────────────────
 function getCat(){ return (window.EL_CATALOG||[]).find(function(e){ return e.id===S.electionId; }); }
 function getLvl(){ var c=getCat(); return c?c.levels.find(function(l){ return l.key===S.levelKey; }):null; }
 
@@ -94,6 +110,35 @@ function loadData(){
           if(err.message==='PROXY_SIZE') showSizeError(lv);
           else { setStatus('error','Erreur'); showError('Impossible de charger les données.<br><small>'+err.message+'</small>'); }
         });
+    });
+}
+
+// Charger les données pour une année spécifique (évolution)
+function loadDataForYear(year, levelKey, cb){
+  var cat = (window.EL_CATALOG||[]).find(function(e){ return elecYear(e.id)===year; });
+  if(!cat){ cb(null); return; }
+  var lv = cat.levels.find(function(l){ return l.key===levelKey; });
+  if(!lv){
+    // Essayer le premier niveau disponible
+    lv = cat.levels[0];
+  }
+  if(!lv){ cb(null); return; }
+
+  var jsonFile = lv.jsonFile || (lv.xmlFile||'').replace('.xml','.json');
+  var xmlFile  = lv.xmlFile  || jsonFile.replace('.json','.xml');
+
+  fetch('./'+jsonFile)
+    .then(function(r){ if(!r.ok) throw new Error('404'); return r.json(); })
+    .then(function(d){ cb(normalizeJson(d)); })
+    .catch(function(){
+      var url = (window.EL_PROXY||'https://corsproxy.io/?') + encodeURIComponent('https://resultatselection.belgium.be/xml/'+xmlFile);
+      fetch(url)
+        .then(function(r){ if(!r.ok) throw new Error('ERR'); return r.text(); })
+        .then(function(txt){
+          if(txt.indexOf('Response exceeds')!==-1) throw new Error('TOO_BIG');
+          cb(parseXML(new DOMParser().parseFromString(txt,'text/xml')));
+        })
+        .catch(function(){ cb(null); });
     });
 }
 
@@ -142,7 +187,7 @@ function parseLevel(lv){
 // ── Routeur de vue ───────────────────────────────────────────
 function renderCurrentView(){
   if(!S.data) return;
-  ['el-sec-pct','el-sec-seats','el-sec-map'].forEach(function(id){
+  ['el-sec-pct','el-sec-seats','el-sec-map','el-sec-evo'].forEach(function(id){
     var el=document.getElementById(id); if(el) el.style.display='none';
   });
   var sec=document.getElementById('el-sec-'+S.view);
@@ -150,9 +195,12 @@ function renderCurrentView(){
   if(S.view==='pct')   renderPct();
   if(S.view==='seats') renderSeats();
   if(S.view==='map')   renderMap();
+  if(S.view==='evo')   renderEvo();
 }
 
-// ── Vue 1 : % des voix ───────────────────────────────────────
+// ══════════════════════════════════════════════════════════════
+//  VUE 1 : % DES VOIX
+// ══════════════════════════════════════════════════════════════
 function renderPct(){
   var wrap=document.getElementById('el-pct-wrap');
   if(!wrap) return;
@@ -170,58 +218,10 @@ function renderPct(){
     +'</div>'
   );
 
-  // Barre de recherche de circonscription
   var subs=S.data.circos.filter(function(c){
     return c.description!=='Constituency'&&c.description!=='Country'&&c.description!=='Region';
   });
-  if(subs.length>0){
-    var box=document.createElement('div');
-    box.className='el-circ-box'; box.id='el-circ-box-pct';
-
-    // Bouton National
-    var hdr=document.createElement('div');
-    hdr.style.cssText='display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;';
-
-    var lbl=document.createElement('span');
-    lbl.className='el-circ-lbl'; lbl.textContent='Circonscription :';
-
-    var btnNat=document.createElement('button');
-    btnNat.className='el-pill-xs active'; btnNat.id='el-circ-national';
-    btnNat.textContent='🇧🇪 National';
-    btnNat.onclick=function(){ elSelectCircoPct('_national',this); };
-
-    // Input de recherche
-    var inputWrap=document.createElement('div');
-    inputWrap.style.cssText='position:relative;flex:1;min-width:180px;max-width:320px;';
-
-    var inp=document.createElement('input');
-    inp.type='text'; inp.id='el-circ-search';
-    inp.placeholder='🔍 Chercher une circonscription…';
-    inp.style.cssText='width:100%;box-sizing:border-box;padding:5px 12px;border:1px solid var(--border);border-radius:20px;font-size:12px;background:var(--surf2);color:var(--text);outline:none;';
-    inp.oninput=function(){ elFilterCircos(this.value); };
-
-    var dd=document.createElement('div');
-    dd.id='el-circ-dropdown';
-    dd.style.cssText='display:none;position:absolute;top:calc(100% + 4px);left:0;right:0;background:var(--surf);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.15);max-height:280px;overflow-y:auto;z-index:999;';
-
-    inputWrap.appendChild(inp);
-    inputWrap.appendChild(dd);
-    hdr.appendChild(lbl);
-    hdr.appendChild(btnNat);
-    hdr.appendChild(inputWrap);
-    box.appendChild(hdr);
-    wrap.appendChild(box);
-
-    window._elSubCircosPct = subs;
-    window._elLevelLabelsPct = {Province:'Province',Region:'Région',Arrondissement:'Arrondissement',Canton:'Canton',Municipality:'Commune'};
-
-    // Fermer dropdown au clic ailleurs
-    document.addEventListener('click',function(e){
-      var d2=document.getElementById('el-circ-dropdown');
-      var i2=document.getElementById('el-circ-search');
-      if(d2&&!d2.contains(e.target)&&e.target!==i2) d2.style.display='none';
-    });
-  }
+  if(subs.length>0){ buildCircoSearch(wrap, subs, 'pct'); }
 
   var h=Math.max(260,Math.min(national.lists.length*38,640));
   wrap.insertAdjacentHTML('beforeend',
@@ -275,56 +275,10 @@ function drawPctChart(circ){
   });
 }
 
-function elFilterCircos(query){
-  var dd=document.getElementById('el-circ-dropdown'); if(!dd) return;
-  var circos=window._elSubCircosPct||[];
-  var lbls=window._elLevelLabelsPct||{};
-  var q=(query||'').toLowerCase().trim();
-  if(!q){ dd.style.display='none'; return; }
-
-  var filtered=circos.filter(function(c){
-    return c.label.toLowerCase().indexOf(q)!==-1 || (lbls[c.description]||'').toLowerCase().indexOf(q)!==-1;
-  });
-
-  dd.innerHTML='';
-  if(filtered.length===0){
-    var empty=document.createElement('div');
-    empty.style.cssText='padding:12px 14px;color:var(--muted);font-size:12px';
-    empty.textContent='Aucun résultat';
-    dd.appendChild(empty);
-  } else {
-    filtered.slice(0,30).forEach(function(c){
-      var item=document.createElement('div');
-      item.className='el-dd-item';
-      item.innerHTML='<span style="font-size:12px;font-weight:600;color:var(--text)">'+c.label+'</span>'
-        +'<span class="el-dd-badge">'+(lbls[c.description]||c.description)+'</span>';
-      item.onclick=(function(circ){ return function(){
-        elSelectCircoPct(circ.label, null);
-        var inp=document.getElementById('el-circ-search'); if(inp) inp.value=circ.label;
-        var d2=document.getElementById('el-circ-dropdown'); if(d2) d2.style.display='none';
-      }; })(c);
-      dd.appendChild(item);
-    });
-    if(filtered.length>30){
-      var more=document.createElement('div');
-      more.style.cssText='padding:8px 14px;color:var(--muted);font-size:11px';
-      more.textContent='… et '+(filtered.length-30)+' autres';
-      dd.appendChild(more);
-    }
-  }
-  dd.style.display='block';
-}
-
-function elSelectCircoPct(labelOrEnc, btn){
-  var label = (labelOrEnc==='_national') ? '_national' : decodeURIComponent(labelOrEnc);
-  var box=document.getElementById('el-circ-box-pct');
-  if(box) box.querySelectorAll('.el-pill-xs').forEach(function(b){b.classList.remove('active');});
-  if(btn&&btn.classList) btn.classList.add('active');
-
+function elSelectCircoPct(label){
   var circ = label==='_national' ? window._elNational
     : (window._elAllCircos||[]).find(function(c){return c.label===label;});
   if(!circ) return;
-
   var dd=document.getElementById('el-circ-dropdown'); if(dd) dd.style.display='none';
   var t=document.getElementById('el-pct-title'); if(t) t.textContent='Résultats — '+circ.label;
   var tc=document.querySelector('#el-pct-table-card .table-wrap');
@@ -333,10 +287,11 @@ function elSelectCircoPct(labelOrEnc, btn){
   if(cv){ cv.parentElement.style.height=Math.max(260,Math.min(circ.lists.length*38,640))+'px'; }
   drawPctChart(circ);
 }
-// Exposer globalement
 window.elSelectCircoPct = elSelectCircoPct;
 
-// ── Vue 2 : Sièges ───────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════
+//  VUE 2 : SIÈGES
+// ══════════════════════════════════════════════════════════════
 function renderSeats(){
   var wrap=document.getElementById('el-seats-wrap');
   if(!wrap) return;
@@ -355,39 +310,7 @@ function renderSeats(){
   }
 
   var currentCirco=circosWithSeats.find(function(c){return c.label===S.seatsCircoKey;})||circosWithSeats[0];
-
-  if(circosWithSeats.length>1){
-    var sw=document.createElement('div');
-    sw.id='el-seats-search-wrap';
-    sw.style.cssText='display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap;';
-
-    var slbl=document.createElement('span');
-    slbl.className='el-circ-lbl'; slbl.textContent='Circonscription :';
-
-    var swrap=document.createElement('div');
-    swrap.style.cssText='position:relative;flex:1;min-width:180px;max-width:320px;';
-
-    var sinp=document.createElement('input');
-    sinp.type='text'; sinp.id='el-seats-search';
-    sinp.placeholder='🔍 Chercher une circonscription…';
-    sinp.value=currentCirco.label;
-    sinp.style.cssText='width:100%;box-sizing:border-box;padding:5px 12px;border:1px solid var(--border);border-radius:20px;font-size:12px;background:var(--surf2);color:var(--text);outline:none;';
-    sinp.oninput=function(){ elFilterSeatsCircos(this.value); };
-
-    var sdd=document.createElement('div');
-    sdd.id='el-seats-dropdown';
-    sdd.style.cssText='display:none;position:absolute;top:calc(100% + 4px);left:0;right:0;background:var(--surf);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.15);max-height:280px;overflow-y:auto;z-index:999;';
-
-    swrap.appendChild(sinp); swrap.appendChild(sdd);
-    var scnt=document.createElement('span');
-    scnt.style.cssText='font-size:11px;color:var(--muted)';
-    scnt.textContent=circosWithSeats.length+' circonscriptions';
-
-    sw.appendChild(slbl); sw.appendChild(swrap); sw.appendChild(scnt);
-    wrap.appendChild(sw);
-    window._elCircosWithSeats=circosWithSeats;
-  }
-
+  if(circosWithSeats.length>1){ buildCircoSearch(wrap, circosWithSeats, 'seats'); }
   renderSeatsForCirco(currentCirco, wrap);
 }
 
@@ -396,8 +319,8 @@ function renderSeatsForCirco(circ, wrap){
   var withSeats=circ.lists.filter(function(l){return l.seats!=null&&l.seats>0;});
   var total=withSeats.reduce(function(s,l){return s+l.seats;},0);
   var lv=getLvl();
-  var isNational=(circ.description==='Constituency'||circ.description==='Country'||circ.description==='Region');
-  var officialTotal=(isNational&&lv&&lv.totalSeats)?lv.totalSeats:total;
+  var isNat=(circ.description==='Constituency'||circ.description==='Country'||circ.description==='Region');
+  var officialTotal=(isNat&&lv&&lv.totalSeats)?lv.totalSeats:total;
 
   var div=document.createElement('div');
   div.className='el-seats-content';
@@ -428,6 +351,15 @@ function renderSeatsForCirco(circ, wrap){
   drawHemicycle(withSeats,total);
 }
 
+function elSelectSeatsCirco(label){
+  S.seatsCircoKey=label;
+  var circ=(S.data.circos||[]).find(function(c){return c.label===label;});
+  var inp=document.getElementById('el-seats-search'); if(inp&&circ) inp.value=circ.label;
+  var dd=document.getElementById('el-seats-dropdown'); if(dd) dd.style.display='none';
+  if(circ) renderSeatsForCirco(circ, document.getElementById('el-seats-wrap'));
+}
+window.elSelectSeatsCirco = elSelectSeatsCirco;
+
 function drawHemicycle(lists,total){
   var wrap=document.getElementById('el-hemicycle'); if(!wrap) return;
   var W=500,H=270,cx=250,cy=255,ro=230,ri=120, angle=Math.PI;
@@ -455,54 +387,16 @@ function drawHemicycle(lists,total){
   wrap.innerHTML=svg;
 }
 
-function elFilterSeatsCircos(query){
-  var dd=document.getElementById('el-seats-dropdown'); if(!dd) return;
-  var circos=window._elCircosWithSeats||[];
-  var q=(query||'').toLowerCase().trim();
-  dd.innerHTML='';
-  if(!q){ dd.style.display='none'; return; }
-  var filtered=circos.filter(function(c){ return c.label.toLowerCase().indexOf(q)!==-1; });
-  if(filtered.length===0){
-    var e=document.createElement('div'); e.style.cssText='padding:12px 14px;color:var(--muted);font-size:12px';
-    e.textContent='Aucun résultat'; dd.appendChild(e);
-  } else {
-    filtered.slice(0,30).forEach(function(c){
-      var item=document.createElement('div'); item.className='el-dd-item';
-      item.innerHTML='<span style="font-size:12px;font-weight:600;color:var(--text)">'+c.label+'</span>'
-        +'<span class="el-dd-badge">'+c.description+'</span>';
-      item.onclick=(function(circ){ return function(){
-        S.seatsCircoKey=circ.label;
-        var i2=document.getElementById('el-seats-search'); if(i2) i2.value=circ.label;
-        var d2=document.getElementById('el-seats-dropdown'); if(d2) d2.style.display='none';
-        renderSeatsForCirco(circ, document.getElementById('el-seats-wrap'));
-      }; })(c);
-      dd.appendChild(item);
-    });
-  }
-  dd.style.display='block';
-}
-
-// ── Vue 3 : Carte ────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════
+//  VUE 3 : CARTE (avec mode parti + dégradé + tooltip %)
+// ══════════════════════════════════════════════════════════════
 function renderMap(){
   var sec=document.getElementById('el-sec-map'); if(!sec) return;
 
-  var bar=document.getElementById('el-map-level-bar');
-  if(!bar){ bar=document.createElement('div'); bar.id='el-map-level-bar'; sec.insertBefore(bar,sec.firstChild); }
-  var mapLevels=[{k:'commune',l:'Communes'},{k:'arrondissement',l:'Arrondissements'},{k:'province',l:'Provinces'}];
-  bar.innerHTML='';
-  var bwrap=document.createElement('div');
-  bwrap.style.cssText='display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:0 0 12px 0';
-  var lsp=document.createElement('span');
-  lsp.style.cssText='font-size:12px;color:var(--muted);margin-right:4px'; lsp.textContent='Niveau :';
-  bwrap.appendChild(lsp);
-  mapLevels.forEach(function(ml){
-    var mb=document.createElement('button');
-    mb.className='el-pill-xs'+(S.mapLevel===ml.k?' active':'');
-    mb.textContent=ml.l;
-    mb.onclick=(function(k){ return function(){ window.elSetMapLevel(k,this); }; })(ml.k);
-    bwrap.appendChild(mb);
-  });
-  bar.appendChild(bwrap);
+  // Barre de contrôles carte
+  var bar=document.getElementById('el-map-ctrl-bar');
+  if(!bar){ bar=document.createElement('div'); bar.id='el-map-ctrl-bar'; sec.insertBefore(bar,sec.firstChild); }
+  buildMapControls(bar);
 
   if(!document.getElementById('el-leaflet-map')){
     var mw=document.createElement('div');
@@ -511,6 +405,73 @@ function renderMap(){
     sec.appendChild(mw);
   }
   initLeaflet();
+}
+
+function buildMapControls(bar){
+  bar.innerHTML='';
+  var row=document.createElement('div');
+  row.style.cssText='display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding-bottom:12px;';
+
+  // Mode : Parti gagnant / Parti
+  var modeWrap=document.createElement('div');
+  modeWrap.style.cssText='display:flex;align-items:center;gap:6px;';
+  var modeLbl=document.createElement('span');
+  modeLbl.style.cssText='font-size:12px;color:var(--muted)';
+  modeLbl.textContent='Mode :';
+
+  var btnWinner=document.createElement('button');
+  btnWinner.className='el-pill-xs'+(S.mapMode==='winner'?' active':'');
+  btnWinner.textContent='🏆 Parti gagnant';
+  btnWinner.onclick=function(){ S.mapMode='winner'; S.mapParti=null; buildMapControls(bar); refreshMap(); };
+
+  var btnParti=document.createElement('button');
+  btnParti.className='el-pill-xs'+(S.mapMode==='parti'?' active':'');
+  btnParti.textContent='🎨 Score d\'un parti';
+  btnParti.onclick=function(){ S.mapMode='parti'; buildMapControls(bar); refreshMap(); };
+
+  modeWrap.appendChild(modeLbl); modeWrap.appendChild(btnWinner); modeWrap.appendChild(btnParti);
+  row.appendChild(modeWrap);
+
+  // Sélecteur de parti (visible seulement en mode 'parti')
+  if(S.mapMode==='parti'){
+    var partiWrap=document.createElement('div');
+    partiWrap.style.cssText='display:flex;align-items:center;gap:6px;flex-wrap:wrap;';
+    var partiLbl=document.createElement('span');
+    partiLbl.style.cssText='font-size:12px;color:var(--muted)';
+    partiLbl.textContent='Parti :';
+    partiWrap.appendChild(partiLbl);
+
+    // Récupérer la liste des partis présents dans les données actuelles
+    var partisPresents=getPartisPresents();
+    partisPresents.forEach(function(p){
+      var bp=document.createElement('button');
+      var isActive=S.mapParti===p.party;
+      bp.className='el-pill-xs'+(isActive?' active':'');
+      bp.style.cssText=isActive?'border-color:'+p.color+';background:'+p.color+'22;color:'+p.color+';':'';
+      bp.innerHTML='<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+p.color+';margin-right:5px;vertical-align:middle"></span>'+p.label;
+      bp.onclick=(function(parti){ return function(){
+        S.mapParti=parti.party;
+        buildMapControls(bar);
+        refreshMap();
+      }; })(p);
+      partiWrap.appendChild(bp);
+    });
+    row.appendChild(partiWrap);
+  }
+
+  bar.appendChild(row);
+}
+
+function getPartisPresents(){
+  if(!S.data) return [];
+  var national=getNational();
+  if(!national) return [];
+  return national.lists.slice(0,12).map(function(l){ return {party:l.party,label:l.label,color:l.color}; });
+}
+
+function refreshMap(){
+  if(S.geoJson && S.leafletMap) applyGeo(S.geoJson);
+  else initLeaflet();
 }
 
 function initLeaflet(){
@@ -551,22 +512,49 @@ function loadGeoJson(cb){
 
 function applyGeo(geo){
   if(!S.leafletMap||!S.data) return;
-  var winners=buildWinners();
   S.leafletMap.eachLayer(function(l){if(l._elLayer) S.leafletMap.removeLayer(l);});
+
+  var isPartiMode = S.mapMode==='parti' && S.mapParti;
+  var dataIndex = isPartiMode ? buildPartiIndex(S.mapParti) : buildWinners();
+
   var layer=window.L.geoJSON(geo,{
-    style:function(f){ var w=winners[norm(getFeatureName(f))]; return {fillColor:w?w.color:'#E0E0E0',fillOpacity:0.72,color:'#fff',weight:0.8}; },
+    style:function(f){
+      var name=getFeatureName(f);
+      var d=dataIndex[norm(name)];
+      if(!d) return {fillColor:'#E8E8E8',fillOpacity:0.5,color:'#ccc',weight:0.6};
+      if(isPartiMode){
+        return {fillColor:d.color, fillOpacity:d.opacity, color:'#fff', weight:0.6};
+      }
+      return {fillColor:d.color, fillOpacity:0.75, color:'#fff', weight:0.8};
+    },
     onEachFeature:function(f,l){
-      var name=getFeatureName(f), w=winners[norm(name)];
+      var name=getFeatureName(f);
+      var d=dataIndex[norm(name)];
       var tip='<strong>'+name+'</strong>';
-      if(w) tip+='<br><span style="color:'+w.color+'">■</span> '+w.party+' — '+w.pct+'%'+(w.seats?' · '+w.seats+' sièges':'');
-      else  tip+='<br><em style="color:#999">Donnée non disponible</em>';
+      if(d){
+        if(isPartiMode){
+          // Mode parti : afficher le % du parti sélectionné
+          var partiLabel=window.elPartyLabel(S.mapParti);
+          tip+='<br><span style="color:'+d.baseColor+'">■</span> <strong>'+partiLabel+'</strong> : '+d.pct+'%';
+          tip+='<br><span style="color:var(--muted);font-size:11px">'+d.votes.toLocaleString('fr-BE')+' voix</span>';
+        } else {
+          // Mode gagnant : afficher le parti gagnant + son %
+          tip+='<br><span style="color:'+d.color+'">■</span> <strong>'+d.party+'</strong> : '+d.pct+'%';
+          if(d.seats) tip+=' · '+d.seats+' sièges';
+        }
+      } else {
+        tip+='<br><em style="color:#999">Donnée non disponible</em>';
+      }
       l.bindTooltip(tip,{sticky:true,className:'el-map-tooltip'});
     }
   });
   layer._elLayer=true; layer.addTo(S.leafletMap);
-  renderMapLegend(winners);
+
+  if(isPartiMode) renderPartiLegend(S.mapParti);
+  else renderMapLegend(dataIndex);
 }
 
+// Index mode gagnant
 function buildWinners(){
   var idx={};
   (S.data.circos||[]).forEach(function(c){
@@ -581,13 +569,44 @@ function buildWinners(){
   return idx;
 }
 
-function getFeatureName(f){
-  var p=f.properties||{};
-  function v(x){ return Array.isArray(x)?x[0]||'':x||''; }
-  return v(p.mun_name_fr)||v(p.mun_name_nl)||v(p.mun_name_de)||v(p.name_fr)||v(p.name)||v(p.nom)||'';
+// Index mode parti : dégradé de couleur selon le score
+function buildPartiIndex(partyKey){
+  var idx={};
+  var baseColor = window.elPartyColor(partyKey);
+  // Trouver le score max parmi toutes les circos pour calibrer l'échelle
+  var maxPct=0;
+  (S.data.circos||[]).forEach(function(c){
+    var li=c.lists.find(function(l){return l.party===partyKey;});
+    if(li&&li.pct>maxPct) maxPct=li.pct;
+  });
+  if(maxPct===0) maxPct=1;
+
+  (S.data.circos||[]).forEach(function(c){
+    var li=c.lists.find(function(l){return l.party===partyKey;});
+    if(!li) return;
+    // Opacité proportionnelle au score (min 0.12, max 0.92)
+    var ratio=li.pct/maxPct;
+    var opacity=0.12+ratio*0.80;
+    var entry={baseColor:baseColor, color:baseColor, opacity:opacity, pct:li.pct, votes:li.votes};
+    var n=norm(c.label);
+    idx[n]=entry;
+    idx[n.replace(/saint/g,'st')]=entry;
+    idx[n.replace(/^st/,'saint')]=entry;
+  });
+  return idx;
 }
 
-function norm(s){ return (s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[-\s'\u2019]/g,''); }
+function renderPartiLegend(partyKey){
+  var el=document.getElementById('el-map-legend'); if(!el) return;
+  var color=window.elPartyColor(partyKey);
+  var label=window.elPartyLabel(partyKey);
+  el.innerHTML='<div class="card"><div class="card-title">Score de '+label+' par zone</div>'
+    +'<div style="display:flex;align-items:center;gap:8px;margin-top:10px;">'
+    +'<span style="font-size:12px;color:var(--muted)">Score faible</span>'
+    +'<div style="flex:1;height:14px;border-radius:7px;background:linear-gradient(to right,'+color+'20,'+color+'EE)"></div>'
+    +'<span style="font-size:12px;color:var(--muted)">Score élevé</span>'
+    +'</div></div>';
+}
 
 function renderMapLegend(winners){
   var el=document.getElementById('el-map-legend'); if(!el) return;
@@ -610,26 +629,420 @@ window.elSetMapLevel=function(level,btn){
   if(S.geoJson&&S.leafletMap) applyGeo(S.geoJson);
 };
 
+// ══════════════════════════════════════════════════════════════
+//  VUE 4 : ÉVOLUTION TEMPORELLE
+// ══════════════════════════════════════════════════════════════
+function renderEvo(){
+  var sec=document.getElementById('el-sec-evo'); if(!sec) return;
+  sec.innerHTML='';
+
+  // Récupérer la liste des partis disponibles pour le niveau actuel
+  var national=getNational();
+  var partis=national?national.lists.slice(0,15):[];
+
+  // Contrôles
+  var ctrl=document.createElement('div');
+  ctrl.style.cssText='padding:0 0 16px 0;';
+
+  // Métrique
+  ctrl.insertAdjacentHTML('beforeend','<div style="margin-bottom:12px"><div class="el-circ-lbl" style="margin-bottom:6px">Afficher</div><div id="evo-metric-row"></div></div>');
+
+  // Circonscription
+  ctrl.insertAdjacentHTML('beforeend','<div style="margin-bottom:12px"><div class="el-circ-lbl" style="margin-bottom:6px">Circonscription</div><div id="evo-circ-row"></div></div>');
+
+  // Partis à afficher
+  ctrl.insertAdjacentHTML('beforeend','<div style="margin-bottom:16px"><div class="el-circ-lbl" style="margin-bottom:6px">Partis à comparer</div><div id="evo-partis-row"></div></div>');
+
+  sec.appendChild(ctrl);
+
+  // Zone graphique
+  sec.insertAdjacentHTML('beforeend',
+    '<div class="card" id="evo-chart-card" style="margin-bottom:16px">'
+    +'<div class="card-title" id="evo-chart-title">Évolution</div>'
+    +'<div class="card-subtitle" id="evo-chart-sub"></div>'
+    +'<div id="evo-loading" style="display:none;padding:40px;text-align:center;color:var(--muted)">Chargement des données…</div>'
+    +'<div class="chart-wrap" id="evo-chart-wrap" style="height:360px;display:none"><canvas id="el-chart-evo"></canvas></div>'
+    +'</div>'
+    +'<div id="evo-table-wrap"></div>'
+  );
+
+  // Initialiser les contrôles
+  buildEvoMetricRow();
+  buildEvoCircoRow();
+  buildEvoPartisRow(partis);
+
+  // Charger et afficher
+  loadEvoData();
+}
+
+function buildEvoMetricRow(){
+  var row=document.getElementById('evo-metric-row'); if(!row) return;
+  row.innerHTML='';
+  var metrics=[{k:'pct',l:'% des voix'},{k:'votes',l:'Nombre de voix'},{k:'seats',l:'Sièges'}];
+  metrics.forEach(function(m){
+    var b=document.createElement('button');
+    b.className='el-pill-sm'+(S.evoMetric===m.k?' active':'');
+    b.textContent=m.l;
+    b.onclick=function(){ S.evoMetric=m.k; buildEvoMetricRow(); drawEvoChart(); };
+    row.appendChild(b);
+    row.insertAdjacentHTML('beforeend',' ');
+  });
+}
+
+function buildEvoCircoRow(){
+  var row=document.getElementById('evo-circ-row'); if(!row) return;
+  row.innerHTML='';
+
+  // Bouton national
+  var bn=document.createElement('button');
+  bn.className='el-pill-xs'+(S.evoCircoKey==='_national'?' active':'');
+  bn.textContent='🇧🇪 National';
+  bn.onclick=function(){ S.evoCircoKey='_national'; buildEvoCircoRow(); drawEvoChart(); };
+  row.appendChild(bn);
+
+  // Barre de recherche pour les autres
+  var searchWrap=document.createElement('div');
+  searchWrap.style.cssText='display:inline-block;position:relative;margin-left:8px;';
+
+  var inp=document.createElement('input');
+  inp.type='text'; inp.id='evo-circ-search';
+  inp.placeholder='🔍 Autre circonscription…';
+  inp.style.cssText='padding:3px 10px;border:1px solid var(--border);border-radius:12px;font-size:11px;background:var(--surf2);color:var(--text);outline:none;width:200px;';
+  if(S.evoCircoKey!=='_national') inp.value=S.evoCircoKey;
+  inp.oninput=function(){
+    var q=this.value.toLowerCase().trim();
+    var dd=document.getElementById('evo-circ-dd'); if(!dd) return;
+    if(!q){ dd.style.display='none'; return; }
+    var subs=(S.data?S.data.circos:[]).filter(function(c){
+      return c.description!=='Constituency'&&c.description!=='Country'&&c.description!=='Region'
+        && c.label.toLowerCase().indexOf(q)!==-1;
+    });
+    dd.innerHTML='';
+    subs.slice(0,15).forEach(function(c){
+      var item=document.createElement('div'); item.className='el-dd-item';
+      item.innerHTML='<span>'+c.label+'</span><span class="el-dd-badge">'+c.description+'</span>';
+      item.onclick=(function(circ){ return function(){
+        S.evoCircoKey=circ.label;
+        inp.value=circ.label;
+        dd.style.display='none';
+        buildEvoCircoRow();
+        drawEvoChart();
+      }; })(c);
+      dd.appendChild(item);
+    });
+    dd.style.display=subs.length?'block':'none';
+  };
+
+  var dd2=document.createElement('div'); dd2.id='evo-circ-dd';
+  dd2.style.cssText='display:none;position:absolute;top:calc(100% + 4px);left:0;width:280px;background:var(--surf);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.15);max-height:200px;overflow-y:auto;z-index:999;';
+
+  searchWrap.appendChild(inp); searchWrap.appendChild(dd2);
+  row.appendChild(searchWrap);
+}
+
+// Partis sélectionnés pour l'évolution
+var _evoSelectedPartis = null;
+
+function buildEvoPartisRow(partis){
+  var row=document.getElementById('evo-partis-row'); if(!row) return;
+  // Init selection : top 5 partis par défaut
+  if(!_evoSelectedPartis){
+    _evoSelectedPartis={};
+    partis.slice(0,5).forEach(function(p){ _evoSelectedPartis[p.party]=true; });
+  }
+  row.innerHTML='';
+  partis.forEach(function(p){
+    var b=document.createElement('button');
+    var isOn=!!_evoSelectedPartis[p.party];
+    b.className='el-pill-xs'+(isOn?' active':'');
+    if(isOn) b.style.cssText='border-color:'+p.color+';background:'+p.color+'22;color:'+p.color+';';
+    b.innerHTML='<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:'+p.color+';margin-right:4px;vertical-align:middle"></span>'+p.label;
+    b.onclick=(function(parti, btn){ return function(){
+      _evoSelectedPartis[parti.party]=!_evoSelectedPartis[parti.party];
+      buildEvoPartisRow(partis);
+      drawEvoChart();
+    }; })(p, b);
+    row.appendChild(b);
+    row.insertAdjacentHTML('beforeend',' ');
+  });
+}
+
+// Cache des données d'évolution par "levelKey|year"
+var _evoCache={};
+
+function loadEvoData(){
+  var loading=document.getElementById('evo-loading');
+  var chartWrap=document.getElementById('evo-chart-wrap');
+  if(loading) loading.style.display='block';
+  if(chartWrap) chartWrap.style.display='none';
+
+  var pending=0;
+  EVO_YEARS.forEach(function(year){
+    var key=S.levelKey+'|'+year;
+    if(_evoCache[key]!==undefined) return; // déjà en cache
+    pending++;
+    _evoCache[key]=null; // marqueur "en cours"
+    loadDataForYear(year, S.levelKey, function(data){
+      _evoCache[key]=data;
+      pending--;
+      if(pending===0){ if(loading) loading.style.display='none'; if(chartWrap) chartWrap.style.display='block'; drawEvoChart(); }
+    });
+  });
+
+  if(pending===0){
+    if(loading) loading.style.display='none';
+    if(chartWrap) chartWrap.style.display='block';
+    drawEvoChart();
+  }
+}
+
+function getCircoFromData(data, circoKey){
+  if(!data) return null;
+  if(circoKey==='_national') return getNationalFromData(data);
+  return data.circos.find(function(c){ return c.label===circoKey; });
+}
+
+function getNationalFromData(data){
+  if(!data) return null;
+  var order=['Region','Country','Constituency'];
+  for(var i=0;i<order.length;i++){
+    var f=data.circos.find(function(c){ return c.description===order[i]&&c.validVotes>0; });
+    if(f) return f;
+  }
+  return data.circos.slice().sort(function(a,b){return b.validVotes-a.validVotes;})[0]||null;
+}
+
+function drawEvoChart(){
+  var canvas=document.getElementById('el-chart-evo'); if(!canvas) return;
+
+  // Rassembler les partis sélectionnés
+  var selPartis=Object.keys(_evoSelectedPartis||{}).filter(function(k){ return _evoSelectedPartis[k]; });
+  if(!selPartis.length){ canvas.getContext('2d').clearRect(0,0,canvas.width,canvas.height); return; }
+
+  // Construire les séries par parti
+  var datasets=[];
+  var labels=EVO_YEARS.map(function(y){ return 'Juin '+y; });
+
+  selPartis.forEach(function(partyKey){
+    var color=window.elPartyColor(partyKey);
+    var label=window.elPartyLabel(partyKey);
+    var data=EVO_YEARS.map(function(year){
+      var cacheKey=S.levelKey+'|'+year;
+      var d=_evoCache[cacheKey];
+      var circ=getCircoFromData(d, S.evoCircoKey);
+      if(!circ) return null;
+      var li=circ.lists.find(function(l){ return l.party===partyKey; });
+      if(!li) return null;
+      if(S.evoMetric==='pct')   return li.pct;
+      if(S.evoMetric==='votes') return li.votes;
+      if(S.evoMetric==='seats') return li.seats;
+      return null;
+    });
+    datasets.push({
+      label:label,
+      data:data,
+      borderColor:color,
+      backgroundColor:color+'33',
+      pointBackgroundColor:color,
+      pointRadius:6,
+      pointHoverRadius:9,
+      borderWidth:3,
+      fill:false,
+      tension:0.3,
+      spanGaps:true,
+    });
+  });
+
+  // Mettre à jour le titre
+  var titleEl=document.getElementById('evo-chart-title');
+  var subEl=document.getElementById('evo-chart-sub');
+  var metricLabel={pct:'% des voix',votes:'Nombre de voix',seats:'Sièges'}[S.evoMetric];
+  var circoLabel=S.evoCircoKey==='_national'?'Niveau national':S.evoCircoKey;
+  if(titleEl) titleEl.textContent='Évolution — '+metricLabel;
+  if(subEl) subEl.textContent=circoLabel+' · Juin 2014 / Juin 2019 / Juin 2024';
+
+  // Détruire le chart précédent
+  if(window._evoChart){ window._evoChart.destroy(); window._evoChart=null; }
+
+  window._evoChart=new Chart(canvas,{
+    type:'line',
+    data:{labels:labels, datasets:datasets},
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      interaction:{mode:'index',intersect:false},
+      plugins:{
+        legend:{display:true,position:'bottom',labels:{boxWidth:16,padding:16,font:{size:12}}},
+        tooltip:{callbacks:{
+          label:function(ctx){
+            var v=ctx.raw;
+            if(v==null) return ctx.dataset.label+' : —';
+            if(S.evoMetric==='pct') return ctx.dataset.label+' : '+v+'%';
+            if(S.evoMetric==='votes') return ctx.dataset.label+' : '+v.toLocaleString('fr-BE')+' voix';
+            if(S.evoMetric==='seats') return ctx.dataset.label+' : '+v+' siège(s)';
+            return ctx.dataset.label+' : '+v;
+          }
+        }}
+      },
+      scales:{
+        y:{
+          ticks:{
+            callback:function(v){
+              if(S.evoMetric==='pct') return v+'%';
+              if(S.evoMetric==='votes') return (v/1000).toFixed(0)+'k';
+              return v;
+            },
+            color:'#4A5785',font:{size:11}
+          },
+          grid:{color:'rgba(0,46,255,0.06)'}
+        },
+        x:{ticks:{color:'#060D2E',font:{size:12,weight:'500'}},grid:{display:false}}
+      }
+    }
+  });
+
+  // Tableau récapitulatif
+  buildEvoTable(selPartis);
+}
+
+function buildEvoTable(selPartis){
+  var wrap=document.getElementById('evo-table-wrap'); if(!wrap) return;
+  var metricLabel={pct:'%',votes:'Voix',seats:'Sièges'}[S.evoMetric];
+
+  var html='<div class="card"><div class="card-title">Tableau récapitulatif</div>'
+    +'<div class="table-wrap"><table><thead><tr><th>Parti</th>';
+  EVO_YEARS.forEach(function(y){ html+='<th style="text-align:right">Juin '+y+'</th>'; });
+  html+='<th style="text-align:right">Évol. 2014→2024</th></tr></thead><tbody>';
+
+  selPartis.forEach(function(partyKey){
+    var color=window.elPartyColor(partyKey);
+    var label=window.elPartyLabel(partyKey);
+    html+='<tr><td><span class="dot-party" style="background:'+color+'"></span><strong>'+label+'</strong></td>';
+    var vals=EVO_YEARS.map(function(year){
+      var d=_evoCache[S.levelKey+'|'+year];
+      var circ=getCircoFromData(d,S.evoCircoKey);
+      if(!circ) return null;
+      var li=circ.lists.find(function(l){return l.party===partyKey;});
+      if(!li) return null;
+      if(S.evoMetric==='pct')   return li.pct;
+      if(S.evoMetric==='votes') return li.votes;
+      if(S.evoMetric==='seats') return li.seats;
+      return null;
+    });
+    vals.forEach(function(v){
+      html+='<td style="text-align:right">';
+      if(v==null) html+='—';
+      else if(S.evoMetric==='pct') html+='<strong>'+v+'%</strong>';
+      else if(S.evoMetric==='votes') html+=v.toLocaleString('fr-BE');
+      else html+=v;
+      html+='</td>';
+    });
+    // Delta 2014 → 2024
+    html+='<td style="text-align:right">';
+    if(vals[0]!=null&&vals[2]!=null){
+      var delta=S.evoMetric==='pct'?Math.round((vals[2]-vals[0])*10)/10:vals[2]-vals[0];
+      var sign=delta>0?'+':'';
+      var col=delta>0?'#1a9e4a':delta<0?'#CC0022':'var(--muted)';
+      var disp=S.evoMetric==='pct'?sign+delta+'%':S.evoMetric==='votes'?sign+delta.toLocaleString('fr-BE'):sign+delta;
+      html+='<strong style="color:'+col+'">'+disp+'</strong>';
+    } else html+='—';
+    html+='</td></tr>';
+  });
+  wrap.innerHTML=html+'</tbody></table></div></div>';
+}
+
+// ══════════════════════════════════════════════════════════════
+//  HELPER COMMUN : barre de recherche de circonscription
+// ══════════════════════════════════════════════════════════════
+function buildCircoSearch(container, circos, mode){
+  var box=document.createElement('div');
+  box.className='el-circ-box';
+  box.id='el-circ-box-'+mode;
+
+  var hdr=document.createElement('div');
+  hdr.style.cssText='display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;';
+
+  var lbl=document.createElement('span'); lbl.className='el-circ-lbl'; lbl.textContent='Circonscription :';
+
+  var btnNat=document.createElement('button');
+  btnNat.className='el-pill-xs active'; btnNat.textContent='🇧🇪 National';
+  btnNat.onclick=function(){
+    if(mode==='pct') elSelectCircoPct('_national');
+    else elSelectSeatsCirco('_national');
+    box.querySelectorAll('.el-pill-xs').forEach(function(b){b.classList.remove('active');});
+    btnNat.classList.add('active');
+  };
+
+  var iWrap=document.createElement('div');
+  iWrap.style.cssText='position:relative;flex:1;min-width:180px;max-width:320px;';
+
+  var inp=document.createElement('input');
+  inp.type='text'; inp.id='el-'+mode+'-search';
+  inp.placeholder='🔍 Chercher une circonscription…';
+  inp.style.cssText='width:100%;box-sizing:border-box;padding:5px 12px;border:1px solid var(--border);border-radius:20px;font-size:12px;background:var(--surf2);color:var(--text);outline:none;';
+
+  var lblMap={Province:'Province',Region:'Région',Arrondissement:'Arrondissement',Canton:'Canton',Municipality:'Commune'};
+  var dd=document.createElement('div'); dd.id='el-'+mode+'-dropdown';
+  dd.style.cssText='display:none;position:absolute;top:calc(100% + 4px);left:0;right:0;background:var(--surf);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.15);max-height:280px;overflow-y:auto;z-index:999;';
+
+  inp.oninput=function(){
+    var q=this.value.toLowerCase().trim();
+    dd.innerHTML='';
+    if(!q){ dd.style.display='none'; return; }
+    var filtered=circos.filter(function(c){ return c.label.toLowerCase().indexOf(q)!==-1; });
+    filtered.slice(0,30).forEach(function(c){
+      var item=document.createElement('div'); item.className='el-dd-item';
+      item.innerHTML='<span style="font-size:12px;font-weight:600;color:var(--text)">'+c.label+'</span>'
+        +'<span class="el-dd-badge">'+(lblMap[c.description]||c.description)+'</span>';
+      item.onclick=(function(circ){ return function(){
+        inp.value=circ.label;
+        dd.style.display='none';
+        box.querySelectorAll('.el-pill-xs').forEach(function(b){b.classList.remove('active');});
+        if(mode==='pct') elSelectCircoPct(circ.label);
+        else elSelectSeatsCirco(circ.label);
+      }; })(c);
+      dd.appendChild(item);
+    });
+    if(filtered.length>30){
+      var m=document.createElement('div'); m.style.cssText='padding:8px 14px;color:var(--muted);font-size:11px';
+      m.textContent='… et '+(filtered.length-30)+' autres'; dd.appendChild(m);
+    }
+    dd.style.display=filtered.length?'block':'none';
+  };
+
+  document.addEventListener('click',function(e){
+    if(!dd.contains(e.target)&&e.target!==inp) dd.style.display='none';
+  });
+
+  iWrap.appendChild(inp); iWrap.appendChild(dd);
+  hdr.appendChild(lbl); hdr.appendChild(btnNat); hdr.appendChild(iWrap);
+  box.appendChild(hdr);
+  container.insertBefore(box, container.firstChild);
+}
+
 // ── Utilitaires ───────────────────────────────────────────────
 function getNational(){
   if(!S.data) return null;
-  // Priorité : Region (ex: Parlement wallon) > Country > Constituency (ex: circonscription locale)
-  // Pour le Parlement wallon, 'Region' = total wallon ; 'Constituency' = circonscription locale
-  var order = ['Region','Country','Constituency'];
-  for(var i=0; i<order.length; i++){
-    var found = S.data.circos.find(function(c){ return c.description===order[i] && c.validVotes > 0; });
-    if(found) return found;
+  var order=['Region','Country','Constituency'];
+  for(var i=0;i<order.length;i++){
+    var f=S.data.circos.find(function(c){ return c.description===order[i]&&c.validVotes>0; });
+    if(f) return f;
   }
-  // Fallback : la circo avec le plus de votes (= la plus agrégée)
-  return S.data.circos.slice().sort(function(a,b){ return b.validVotes - a.validVotes; })[0] || null;
+  return S.data.circos.slice().sort(function(a,b){return b.validVotes-a.validVotes;})[0]||null;
 }
+
+function getFeatureName(f){
+  var p=f.properties||{};
+  function v(x){ return Array.isArray(x)?x[0]||'':x||''; }
+  return v(p.mun_name_fr)||v(p.mun_name_nl)||v(p.mun_name_de)||v(p.name_fr)||v(p.name)||v(p.nom)||'';
+}
+function norm(s){ return (s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[-\s'\u2019]/g,''); }
+
 function kpi(lbl,val,sub){
   return '<div class="kpi"><div class="kpi-label">'+lbl+'</div>'
     +'<div class="kpi-value c-accent" style="font-size:20px">'+val+'</div>'
     +'<div class="kpi-sub">'+sub+'</div></div>';
 }
 function setLoading(on){
-  S.loading=on;
   var sp=document.getElementById('el-loading'); if(sp) sp.style.display=on?'flex':'none';
   var ct=document.getElementById('el-content'); if(ct) ct.style.display=on?'none':'block';
 }

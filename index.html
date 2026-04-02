@@ -286,7 +286,7 @@ input[type="text"]:focus,select:focus{border-color:var(--accent);}
 /* Loading élections */
 #el-loading{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:80px 28px;gap:14px;color:var(--muted);}
 /* Sections de vue */
-#el-sec-pct,#el-sec-seats,#el-sec-map{display:none;}
+#el-sec-pct,#el-sec-seats,#el-sec-map,#el-sec-evo{display:none;}
 
 </style>
 </head>
@@ -658,6 +658,7 @@ input[type="text"]:focus,select:focus{border-color:var(--accent);}
             <div id="el-sec-pct"><div id="el-pct-wrap"></div></div>
             <div id="el-sec-seats"><div id="el-seats-wrap"></div></div>
             <div id="el-sec-map"></div>
+            <div id="el-sec-evo"></div>
           </main>
         </div>
 
@@ -962,7 +963,7 @@ function elPageActivated() {
 <script src="membres.js?v=2"></script>
 <script src="medias.js?v=9"></script>
 <script src="elections-data.js?v=2"></script>
-<script src="elections.js?v=2"></script>
+<script src="elections.js?v=3"></script>
 <script src="reseaux.js?v=1"></script>
 
 <!-- ── SYSTÈME DE CONNEXION ── -->
